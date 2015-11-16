@@ -1,0 +1,75 @@
+#!/usr/bin/python
+from __future__ import division
+from psearch import *
+import math as mt
+import numpy as np
+import pandas as pd
+import seaborn as sb
+import pyfits as pf
+import matplotlib.pyplot as plt
+from IPython.display import clear_output
+
+from glob import glob
+from copy import copy
+from os.path import join, basename, abspath
+
+from numpy.core.records import array as rarr
+from numpy.lib.recfunctions import stack_arrays, merge_arrays
+
+from matplotlib import rc
+from matplotlib.pyplot import figure, GridSpec, subplot, show
+
+sb.set_style('white')
+sb.set_context('paper')
+rc('figure', figsize=(14,5), dpi=100)
+pd.set_option('precision', 3)
+
+if __name__ == '__main__':
+    files = sorted(glob('../../../../../analysis/k2_05/injection_tests/data/reduced/EPIC_*.fits'))
+    epics = array(map(lambda fn:int(basename(fn).split('_')[1]), files))	
+    results = {}
+    
+    fid = 965
+    ts = TransitSearch(files[fid])
+    ts()
+    results[fid] = ts.result
+
+    rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
+    head = pf.getheader(rf,1)
+
+    print ts._rbls['bls_period'], head['inj_per'], head['inj_k'], head['inj_k']**2, '\n'
+
+    r = rarr(ts.result)
+    print 'lnlike 0: {:10.2f}'.format(float(r.lnlike_constant))
+    print 'lnlike 1: {:10.2f}'.format(float(r.lnlike_transit))
+    print 'lnlike 2: {:10.2f}'.format(float(r.lnlike_sine))
+    print 'lnlike 3: {:10.2f}'.format(float(r.lnlike_oe))
+
+    pmode = 'v'
+    pmode = 'h'
+
+    if pmode == 'v':
+        fig = figure(figsize=(13,14))
+        gs = GridSpec(5,2)
+        ax_lctime = subplot(gs[0,:])
+        ax_lcfold = subplot(gs[1,:])
+        ax_lnlike = subplot(gs[3,:])
+        ax_lcoe   = subplot(gs[2,0]),subplot(gs[2,1])
+        ax_sde    = subplot(gs[4,:])
+    elif pmode == 'h':
+        fig = figure(figsize=(14,10))
+        gs = GridSpec(3,4)
+        ax_lctime = subplot(gs[0,:2])
+        ax_lcfold = subplot(gs[1,:2])
+        ax_lnlike = subplot(gs[0,2:])
+        ax_sde    = subplot(gs[1,2:])
+        ax_lcoe   = subplot(gs[2,:2]),subplot(gs[2,2:])
+
+    ts.plot_lc_time(ax_lctime)
+    ts.plot_lc(ax_lcfold)
+    ts.plot_even_odd_lc(ax_lcoe)
+    ts.plot_lnlike(ax_lnlike)
+    ts.plot_sde(ax_sde)
+
+    fig.tight_layout()
+    show()
