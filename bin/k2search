@@ -12,10 +12,11 @@ import matplotlib.pyplot as pl
 import pandas as pd
 import seaborn as sb
 
-from os.path import join, abspath, basename
+from os.path import join, abspath, basename, exists
 from argparse import ArgumentParser
 from datetime import datetime
-from time import sleep
+from cPickle import dump, load
+from time import sleep, time
 from glob import glob
 from copy import copy
 
@@ -28,63 +29,14 @@ from exotk.utils.orbits import as_from_rhop
 from pybls import BLS
 from exotk.utils.misc_f import utilities as uf
 from exotk.utils.misc import fold
+from matplotlib import rc
+
+from k2ps.psearch import *
 
 sb.set_style('white')
 sb.set_context('paper')
-pl.rc('figure', figsize=(14,5), dpi=100)
-
-class TransitSearch(object):
-    def __init__(self, infile, inject=False):        
-        d = pf.getdata(infile,1)
-        m = d.mask_ol_1.astype(np.bool) & (d.quality == 0)
-
-        self.epic   = int(basename(infile).split('_')[1])
-        self.time   = d.time[m]
-        self.mflux  = np.median(d.flux_1[m])
-        self.flux   = (d.flux_1[m] 
-                       - d.trend_t_1[m] + np.median(d.trend_t_1[m]) 
-                       - d.trend_p_1[m] + np.median(d.trend_p_1[m])) / self.mflux
-        self.flux_e = d.error_1[m] / self.mflux
-        self.result = None
-
-        self.period_range = (0.75,20)
-        self.nbin = 500
-        self.qmin = 0.005
-        self.qmax = 0.25
-        
-        if inject:
-            self.tm =  MA(supersampling=10)
-            _t0, _p,_a,_i = 2231, 8.12, as_from_rhop(1.3, 5.12), 1.5707963
-            self.flux *= self.tm.evaluate(self.time, 0.05, [0.4,0.1], _t0, _p, _a, _i)
-        
-        self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
-                        nbin=self.nbin, qmin=self.qmin, qmax=self.qmax)
-        
-        
-    def __call__(self):
-        self.result = self.bls()
-        return self.result
-    
-    def plot_lc(self, ax=None):
-        if not ax:
-            fig,ax = pl.subplots(1,1)
-        bp,bf,be = uf.bin(self.bls.phase, self.flux, self.nbin)
-        ax.plot(bp*self.result.bper, bf, drawstyle='steps-mid')
-        ax.axvline(0, alpha=0.25, ls='--', lw=1)
-        [ax.axvline(p*self.result.bper, alpha=0.25, ls='-', lw=1) for p in [self.bls.p1,self.bls.p2]];
-        pl.setp(ax,xlim=self.result.bper*bp[[0,-1]], xlabel='Phase [d]', ylabel='Normalised flux')
-        return ax
-
-            
-    def plot_sde(self, ax=None):
-        if not ax:
-            fig,ax = pl.subplots(1,1)
-        ax.plot(self.bls.period, self.result.sde)
-        ax.axvline(self.result.bper, alpha=0.25, ls='--', lw=1)
-        ax.text(0.97,0.87, 'Best period: {:4.2f} days'.format(self.result.bper), ha='right', transform=ax.transAxes)
-        pl.setp(ax,xlim=self.bls.period[[-1,0]], xlabel='Period [d]', ylabel='SDE')
-        return ax
-
+rc('figure', figsize=(14,5), dpi=100)
+pd.set_option('precision', 3)
 
 if __name__ == '__main__':
     ap = ArgumentParser()
@@ -93,7 +45,7 @@ if __name__ == '__main__':
     ap.add_argument('--save-dir', default='.', type=str)
     ap.add_argument('--plot-dir', default='.', type=str)
     ap.add_argument('--start-i', default=0, type=int)
-    ap.add_argument('--end-i', default=2000, type=int)
+    ap.add_argument('--end-i', default=None, type=int)
     args = ap.parse_args()
 
     root = 0
@@ -110,18 +62,33 @@ if __name__ == '__main__':
     ## ------------
     if is_root:
         files = map(abspath, sorted(glob(join(args.data_dir,'*.fits'))))
-        epics = map(lambda fn:int(basename(fn).split('_')[1]), files)
+        epics = array(map(lambda fn:int(basename(fn).split('_')[1]), files))	
         free_workers = range(1,size)
         active_workers = []
 
         all_items = files[args.start_i:args.end_i]
         items = copy(all_items)
-        results = []
 
         n_items = len(items)
         n_finished_items = 0
 
+        pklname = join(args.save_dir, args.run_name+'_bls.pkl')
         hdfname = join(args.save_dir, args.run_name+'_bls.h5')
+
+        def save(results):
+            with open(pklname, 'w') as fout:
+                dump(results, fout)
+            hdf = pd.HDFStore(hdfname)
+            hdf['planet_search'] = pd.DataFrame(np.hstack(results.values()))
+            hdf.close()
+
+        if exists(pklname):
+            with (open(pklname, 'r')) as fin:
+                results = load(fin)
+        else:
+            results = {}
+
+        time_last_save = time()
         while items or active_workers:
             ## Send an item
             while items and free_workers:
@@ -132,42 +99,31 @@ if __name__ == '__main__':
             ## Receive the results
             for w in active_workers:
                 if comm.Iprobe(w, 2):
-                    results.append(comm.recv(source=w, tag=2))
+                    epic, res = comm.recv(source=w, tag=2)
+                    results[epic] = res
                     free_workers.append(w)
                     active_workers.remove(w)
                     n_finished_items += 1
-                    print "EPIC {:9d} {:3d}/{:3d}".format(results[-1][0], n_items,n_finished_items)
-            sleep(0.25)
+                    print "EPIC {:9d} {:3d}/{:3d}".format(epic, n_items,n_finished_items)
             
+            if time() - time_last_save > 30:
+                save(results)
+                time_last_save = time()
+            sleep(0.15)
+
         for w in free_workers:
             comm.send(-1, dest=w, tag=0)
 
-        data = np.array(results)
-        df = pd.DataFrame(data[:,1:], columns=['bper','bsde'], index=data[:,0])
-        hdf = pd.HDFStore(hdfname)
-        hdf['bls'] = df
-        hdf.close()
-
+        save(results)
 
     ## Worker node
     ## -----------
     else:
-        fig,axs = pl.subplots(2,1,figsize=(13,8))
-        
         while True:
             fname = comm.recv(source=root, tag=0)
             if fname == -1:
                 break
-
-            epic   = int(basename(fname).split('_')[1])
             ts = TransitSearch(fname)
             ts()
-    
-            ts.plot_lc(axs[0])
-            ts.plot_sde(axs[1])
-            fig.tight_layout()
-            fig.savefig(join(args.plot_dir,'SDE_{:04.0f}_EPIC_{:9d}.png'.format(100*ts.result.bsde,ts.epic)))
-            [ax.cla() for ax in axs]
+            comm.send((ts.epic, ts.result), dest=root, tag=2)    
 
-            comm.send((epic, ts.result.bper, ts.result.bsde), dest=root, tag=2)    
-            del ts

@@ -106,8 +106,11 @@ class TransitSearch(object):
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
         
-        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, acor(self.flux_r)[0],
-                             acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]), dtype=dt_lcinfo)
+        try:
+            ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]
+        except RuntimeError:
+            ar,ac,ap,at = nan,nan,nan,nan
+        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
 
         self._rbls = None
         self._rtrf = None

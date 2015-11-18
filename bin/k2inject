@@ -122,8 +122,9 @@ if __name__ == '__main__':
 
         hdul = pf.open(f, mode='update')
         hdu = hdul[1]
-        hdu.data['pdcsap_flux'] *= tm.evaluate(hdu.data['time'], radius_ratio, [0.4,0.1],
-                                               zero_epoch, period, semi_major_axis, inclination)
+        transit = tm.evaluate(hdu.data['time'], radius_ratio, [0.4,0.1], zero_epoch, period, semi_major_axis, inclination)
+        hdu.data['sap_flux'] *= transit
+        hdu.data['pdcsap_flux'] *= transit
         hdul[1].header['inj_rho'] = stellar_density
         hdul[1].header['inj_per'] = period
         hdul[1].header['inj_k']   = radius_ratio

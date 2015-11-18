@@ -114,7 +114,6 @@ if __name__ == '__main__':
     
     files = sorted(glob(join(data_dir,'EPIC_*.fits')))
     teacher = Teacher(files, args.savefile, args.start_index, args.mode)
-    
 
     #rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
     #head = pf.getheader(rf,1)
