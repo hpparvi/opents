@@ -1,0 +1,135 @@
+#!/usr/bin/python
+"""K2 Injection test generation script
+
+Creates a directory structure
+
+ - Data
+ |- raw_clean
+ |- raw_inj
+
+Each detrended dataset is assumed to be stored in
+
+ - Data
+ |- det_{kernel}_clean
+ |- det_{kernel}_inj
+
+"""
+
+from __future__ import division
+import numpy as np
+import pandas as pd
+import pyfits as pf
+import shutil as sh
+import logging as lg
+
+from math import pi
+from ConfigParser import ConfigParser
+from os import makedirs
+from os.path import join, abspath, relpath, basename, exists
+from argparse import ArgumentParser
+from datetime import datetime
+from glob import glob
+
+from numpy.random import seed, uniform, normal, permutation
+from numpy import clip
+
+from pytransit import MandelAgol as MA
+from exotk.utils.orbits import as_from_rhop
+
+lg.basicConfig(level=lg.DEBUG, format='%(levelname)s %(name)s: %(message)s')
+
+if __name__ == '__main__':
+    ## Argument parsing
+    ## ----------------
+    ap = ArgumentParser()
+    ap.add_argument('config', nargs='?', type=str, default=None)
+    args = ap.parse_args()
+
+    ## Configuration
+    ## -------------
+    cp = ConfigParser()
+    cp.add_section('sample')
+    cp.add_section('planets')
+    cp.set('sample', 'set_name', 'default')
+    cp.set('sample', 'size', 10)
+    cp.set('sample', 'seed', 0)
+    cp.set('sample', 'mast_dir', 'CHANGE_ME')
+    cp.set('planets', 'k_limits', '0.01,  0.18')
+    cp.set('planets', 'p_limits', '0.75, 20.00')
+
+    if not args.config:
+        lg.info('No config file given, writing a template config file default.cfg and quitting')
+        with open('default.cfg', 'w') as f:
+            cp.write(f)
+        exit()
+
+    cp.read(args.config)
+    set_name = cp.get('sample', 'name')
+    sample_size = cp.getint('sample', 'size')
+    seed(cp.getint('sample', 'seed'))
+
+    data_dir  = cp.get('sample', 'mast_dir')
+    set_dir_c = join('data','raw_clean')
+    set_dir_i = join('data','raw_inj')
+    all_files = glob(join(data_dir,'kt*.fits'))
+    raw_files = permutation(all_files)[:sample_size]
+    set_files_c = [join(set_dir_c,basename(f)) for f in raw_files]
+    set_files_i = [join(set_dir_i,basename(f)) for f in raw_files]
+
+    lg.info('Set name %s', set_name)
+    lg.info('Sample size %i', sample_size)
+    lg.info('Original MAST data directory %s', abspath(data_dir))
+    lg.info('Clean data directory %s', abspath(set_dir_c))
+    lg.info('Injected data directory %s', abspath(set_dir_i))
+    lg.info('Found %i light curves', len(all_files))
+    lg.info('Created a subset of %i light curves', len(set_files_c))
+    
+    ## Generation of directories and copying of files
+    ## ----------------------------------------------
+    for set_dir in [set_dir_c,set_dir_i]:
+        if not exists(set_dir):
+            lg.info('Directory %s doesn\'t exist, creating it', set_dir)
+            makedirs(set_dir)
+
+    lg.info('Copying light curves')
+    for fo,fc,fi in zip(raw_files, set_files_c,set_files_i):
+        sh.copy2(fo,fc)
+        lg.info('Copied %s to %s', relpath(fo), relpath(fc))
+        sh.copy2(fo,fi)
+        lg.info('Copied %s to %s', relpath(fo), relpath(fi))
+
+    ## Transit injection
+    ## -----------------
+    tm =  MA(supersampling=10)
+
+    k_lims = np.fromstring(cp.get('planets', 'k_limits'), count=2, sep=',')
+    p_lims = np.fromstring(cp.get('planets', 'p_limits'), count=2, sep=',')
+
+    lg.info('Injecting transits')
+    lg.info('Radius ratio limits %s', str(k_lims))
+    lg.info('Period limits %s', str(p_lims))
+    for i,f in enumerate(set_files_i):
+        stellar_density = normal(1.7,0.1)
+        period          = uniform(*p_lims)
+        radius_ratio    = uniform(*k_lims)
+        radius_ratio    = clip(np.abs(normal(0, 0.075)), 0, 0.2)
+        zero_epoch      = uniform(0,period)
+        semi_major_axis = as_from_rhop(stellar_density,period)
+        inclination     = 0.5*pi
+
+        lg.info('%s rho=%3.2f p=%5.2f k=%4.2f t0=%5.2f a=%5.2f i=%4.2f', basename(f),
+                stellar_density, period, radius_ratio, zero_epoch, semi_major_axis, inclination)
+
+        hdul = pf.open(f, mode='update')
+        hdu = hdul[1]
+        hdu.data['pdcsap_flux'] *= tm.evaluate(hdu.data['time'], radius_ratio, [0.4,0.1],
+                                               zero_epoch, period, semi_major_axis, inclination)
+        hdul[1].header['inj_rho'] = stellar_density
+        hdul[1].header['inj_per'] = period
+        hdul[1].header['inj_k']   = radius_ratio
+        hdul[1].header['inj_t0']  = zero_epoch
+        hdul[1].header['inj_sma'] = semi_major_axis
+        hdul[1].header['inj_inc'] = inclination
+        hdul.flush()
+        hdul.close()
+    lg.info('Finished')
