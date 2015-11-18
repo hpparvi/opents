@@ -14,6 +14,7 @@ from os.path import join, basename, abspath
 from scipy.ndimage import binary_dilation, binary_erosion
 
 from pytransit import MandelAgol as MA
+from pytransit import Gimenez as GM
 import scipy.optimize as so 
 from exotk.utils.likelihood import ll_normal_es
 from scipy.optimize import minimize
@@ -30,14 +31,18 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
-                   sqrt, floor, diff, unique, concatenate, sin, pi)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
+                   nanpercentile)
+
+from acor import acor
 
 from matplotlib.pyplot import setp, subplots
 
 ## Array type definitions
 ## ----------------------
 str_to_dt = lambda s: [tuple(t.strip().split()) for t in s.split(',')]
-dt_lcinfo    = str_to_dt('epic u8, flux_median f8, flux_std f8, lnlike_constant f8, type a8')
+dt_lcinfo    = str_to_dt('epic u8, flux_median f8, flux_std f8, lnlike_constant f8, type a8,'
+                         'acor_raw f8, acor_corr f8, acor_trp f8, acor_trt f8')
 dt_blsresult = str_to_dt('sde f8, bls_zero_epoch f8, bls_period f8, bls_duration f8, bls_depth f8,'
                          'bls_radius_ratio f8, ntr u4')
 dt_trfresult = str_to_dt('lnlike_transit f8, trf_zero_epoch f8, trf_period f8, trf_duration f8, trf_depth f8,'
@@ -75,7 +80,8 @@ class TransitSearch(object):
              & isfinite(d.time) & isfinite(d.error_1))
         m = (d.quality == 0) & isfinite(d.flux_1)
         
-        self.tm = MA(supersampling=10)
+        self.tm = GM(supersampling=10, npol=200)
+        #self.tm = MA(supersampling=10) # Can be switched back when the MA bug is fixed.
         self.em = MA(supersampling=10, nldc=0)
 
         self.epic   = int(basename(infile).split('_')[1])
@@ -86,7 +92,11 @@ class TransitSearch(object):
         self.mflux   = median(d.flux_1[m])
         self.flux   /= self.mflux
         self.flux_e  = d.error_1[m] / abs(self.mflux)
-                             
+
+        self.flux_r  = d.flux_1[m] / self.mflux
+        self.trend_t = d.trend_t_1[m] / self.mflux
+        self.trend_p = d.trend_p_1[m] / self.mflux
+
         self.period_range = (0.75,25)
         self.nbin = 500
         self.qmin = 0.001
@@ -96,7 +106,8 @@ class TransitSearch(object):
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
         
-        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan), dtype=dt_lcinfo)
+        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, acor(self.flux_r)[0],
+                             acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]), dtype=dt_lcinfo)
 
         self._rbls = None
         self._rtrf = None
@@ -180,6 +191,7 @@ class TransitSearch(object):
         self._tr_lnlike_min = lmin = (lnl.min() - lmed) / lstd
         self._rpol = array((lmed, lstd, lmax, lmin), dt_poresult)
         
+
     def fit_even_odd(self):
         def minfun(pv, time, flux, flux_e):
             if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1): return inf
@@ -216,10 +228,13 @@ class TransitSearch(object):
     
     ## Plotting
     ## --------
-    def plot_lc_time(self, ax=None, nbin=None):
+    def plot_lc_time(self, ax=None):
         if not ax:
             fig,ax = subplots(1,1)
-        ax.plot(self.time, self.flux, lw=1, drawstyle='steps-mid')
+        ax.plot(self.time, self.flux_r, lw=1)
+        ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(3)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
         return ax
@@ -237,11 +252,13 @@ class TransitSearch(object):
         else:
             phase = fold(self.time, r.trf_period, r.trf_zero_epoch, shift=0.5) - 0.5
             bp,bf,be = uf.bin(phase, self.flux, nbin)
-            ax.plot(bp*r.trf_period, bf, lw=1, marker='.', drawstyle='steps-mid')
+            ms = isfinite(bf)
+            ax.plot(bp[ms]*r.trf_period, bf[ms], lw=1, marker='.', drawstyle='steps-mid')
             
             flux_m = self.transit_model(self._pv_trf)
             bp,bf,be = uf.bin(phase, flux_m, nbin)
-            ax.plot(bp*r.trf_period, bf, 'k--', drawstyle='steps-mid')
+            ms = isfinite(bf)
+            ax.plot(bp[ms]*r.trf_period, bf[ms], 'k--', drawstyle='steps-mid')
             
         if self._rvar:
             flux_s = self.sine_model([self._rvar['sine_amplitude']], 2*r.bls_period, r.bls_zero_epoch)
@@ -262,7 +279,7 @@ class TransitSearch(object):
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
         hdur = array([-0.5,0.5]) * duration
-        
+
         for time,flux_o in ((self.time_even,self.flux_even),
                             (self.time_odd,self.flux_odd)):
         
@@ -270,12 +287,15 @@ class TransitSearch(object):
             flux_m = self.transit_model(self._pv_trf, time)
             bpd,bfd,bed = uf.bin(phase, flux_o, nbin)
             bpm,bfm,bem = uf.bin(phase, flux_m, nbin)
-            ax[0].plot(bpd, bfd)
-            ax[1].plot(bpm, bfm)
-            
+            pmask = abs(bpd) < 1.5*duration
+            omask = pmask & isfinite(bfd)
+            mmask = pmask & isfinite(bfm)
+            ax[0].plot(bpd[omask], bfd[omask], marker='o')
+            ax[1].plot(bpm[mmask], bfm[mmask], marker='o')
+
         [a.axvline(0, alpha=0.25, ls='--', lw=1) for a in ax]
         [[a.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur] for a in ax]
-        setp(ax,xlim=2*hdur, xlabel='Phase [d]', ylim=(0.998*bfd.min(), 1.002*bfd.max()))
+        setp(ax,xlim=3*hdur, xlabel='Phase [d]', ylim=(0.998*nanmin(bfd[pmask]), 1.002*nanmax(bfd[pmask])))
         setp(ax[0], ylabel='Normalised flux')
         setp(ax[1].get_yticklabels(), visible=False)
         return ax
