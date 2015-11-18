@@ -1,6 +1,5 @@
 #!/usr/bin/python
 from __future__ import division
-from psearch import *
 import math as mt
 import numpy as np
 import pandas as pd
@@ -8,68 +7,125 @@ import seaborn as sb
 import pyfits as pf
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
+from argparse import ArgumentParser
+from cPickle import load, dump
 
 from glob import glob
 from copy import copy
-from os.path import join, basename, abspath
+from os.path import join, basename, abspath, exists
 
+from numpy.random import randint
 from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from matplotlib import rc
 from matplotlib.pyplot import figure, GridSpec, subplot, show
 
+from k2ps.psearch import *
+
 sb.set_style('white')
 sb.set_context('paper')
 rc('figure', figsize=(14,5), dpi=100)
 pd.set_option('precision', 3)
 
+class Teacher(object):
+    def __init__(self, files, savefile, start_index=0, pmode='h'):
+        self.files = files
+        self.savefile = savefile
+        self.fid = start_index
+        self.epics = array(map(lambda fn:int(basename(fn).split('_')[1]), self.files))	
+
+        if exists(savefile):
+            with open(savefile, 'r') as f:
+                self.results = load(f)
+        else:
+            self.results = {}
+        
+        if pmode == 'v':
+            self.fig = figure(figsize=(13,14))
+            self.gs = GridSpec(5,2)
+            self.ax_lctime = subplot(self.gs[0,:])
+            self.ax_lcfold = subplot(self.gs[1,:])
+            self.ax_lnlike = subplot(self.gs[3,:])
+            self.ax_lcoe   = subplot(self.gs[2,0]),subplot(self.gs[2,1])
+            self.ax_sde    = subplot(self.gs[4,:])
+        elif pmode == 'h':
+            self.fig = figure(figsize=(14,10))
+            self.gs = GridSpec(3,4)
+            self.ax_lctime = subplot(self.gs[0,:2])
+            self.ax_lcfold = subplot(self.gs[1,:2])
+            self.ax_lnlike = subplot(self.gs[0,2:])
+            self.ax_sde    = subplot(self.gs[1,2:])
+            self.ax_lcoe   = subplot(self.gs[2,:2]),subplot(self.gs[2,2:])
+        self.axes = [self.ax_lctime, self.ax_lcfold, self.ax_lnlike, self.ax_sde,
+                     self.ax_lcoe[0], self.ax_lcoe[1]]
+        cid = self.fig.canvas.mpl_connect('key_press_event', self.key_pressed)
+        self.fig.tight_layout()
+        self.compute(self.fid)
+
+        
+    def compute(self, fid):
+        self.fid = fid
+        self.ts = TransitSearch(self.files[fid])
+        self.ts()
+        [a.cla() for a in self.axes]
+        self.ts.plot_lc_time(self.ax_lctime)
+        self.ts.plot_lc(self.ax_lcfold)
+        self.ts.plot_even_odd_lc(self.ax_lcoe)
+        self.ts.plot_lnlike(self.ax_lnlike)
+        self.ts.plot_sde(self.ax_sde)
+        self.fig.canvas.draw()
+        self._cres = self.ts.result
+        self.results[self.epics[self.fid]] = self._cres
+        
+        
+    def key_pressed(self, event):
+        print event.key
+        if event.key == 'right':
+            self.compute(min(self.fid+1, len(self.files)-1))
+        elif event.key == 'left':
+            self.compute(max(self.fid-1, 0))
+        elif event.key == 'r':
+            self.compute(randint(0, len(self.files)-1))
+        elif event.key == 'p':
+            self._cres['type'] = 'planet'
+        elif event.key == 'b':
+            self._cres['type'] = 'EB'
+        elif event.key == 'n':
+            self._cres['type'] = 'nothing'
+        elif event.key == 'e':
+            self._cres['type'] = 'bad_detrending'
+        elif event.key == 'w':
+            print pd.DataFrame(np.hstack(self.results.values()))
+        elif event.key == 'shift+s':
+            with open(self.savefile, 'w') as f:
+                dump(self.results, f)
+            
+            
 if __name__ == '__main__':
-    files = sorted(glob('../../../../../analysis/k2_05/injection_tests/data/reduced/EPIC_*.fits'))
-    epics = array(map(lambda fn:int(basename(fn).split('_')[1]), files))	
-    results = {}
+    ap = ArgumentParser()
+    ap.add_argument('savefile', type=str)
+    ap.add_argument('--data-dir', type=str, default=None)
+    ap.add_argument('--start-index', type=int, default=0)
+    ap.add_argument('--mode', type=str, default='h')
+    args = ap.parse_args()
+
+    data_dir = args.data_dir or '../../../../../analysis/k2_05/injection_tests/data/reduced/'
     
-    fid = 965
-    ts = TransitSearch(files[fid])
-    ts()
-    results[fid] = ts.result
+    files = sorted(glob(join(data_dir,'EPIC_*.fits')))
+    teacher = Teacher(files, args.savefile, args.start_index, args.mode)
+    
 
-    rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
-    head = pf.getheader(rf,1)
+    #rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
+    #head = pf.getheader(rf,1)
 
-    print ts._rbls['bls_period'], head['inj_per'], head['inj_k'], head['inj_k']**2, '\n'
+    #print ts._rbls['bls_period'], head['inj_per'], head['inj_k'], head['inj_k']**2, '\n'
 
-    r = rarr(ts.result)
-    print 'lnlike 0: {:10.2f}'.format(float(r.lnlike_constant))
-    print 'lnlike 1: {:10.2f}'.format(float(r.lnlike_transit))
-    print 'lnlike 2: {:10.2f}'.format(float(r.lnlike_sine))
-    print 'lnlike 3: {:10.2f}'.format(float(r.lnlike_oe))
+    #r = rarr(ts.result)
+    #print 'lnlike 0: {:10.2f}'.format(float(r.lnlike_constant))
+    #print 'lnlike 1: {:10.2f}'.format(float(r.lnlike_transit))
+    #print 'lnlike 2: {:10.2f}'.format(float(r.lnlike_sine))
+    #print 'lnlike 3: {:10.2f}'.format(float(r.lnlike_oe))
 
-    pmode = 'v'
-    pmode = 'h'
 
-    if pmode == 'v':
-        fig = figure(figsize=(13,14))
-        gs = GridSpec(5,2)
-        ax_lctime = subplot(gs[0,:])
-        ax_lcfold = subplot(gs[1,:])
-        ax_lnlike = subplot(gs[3,:])
-        ax_lcoe   = subplot(gs[2,0]),subplot(gs[2,1])
-        ax_sde    = subplot(gs[4,:])
-    elif pmode == 'h':
-        fig = figure(figsize=(14,10))
-        gs = GridSpec(3,4)
-        ax_lctime = subplot(gs[0,:2])
-        ax_lcfold = subplot(gs[1,:2])
-        ax_lnlike = subplot(gs[0,2:])
-        ax_sde    = subplot(gs[1,2:])
-        ax_lcoe   = subplot(gs[2,:2]),subplot(gs[2,2:])
-
-    ts.plot_lc_time(ax_lctime)
-    ts.plot_lc(ax_lcfold)
-    ts.plot_even_odd_lc(ax_lcoe)
-    ts.plot_lnlike(ax_lnlike)
-    ts.plot_sde(ax_sde)
-
-    fig.tight_layout()
     show()
