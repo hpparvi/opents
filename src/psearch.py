@@ -31,8 +31,7 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
-                   nanpercentile)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
 
 from acor import acor
 
