@@ -79,9 +79,9 @@ class TransitSearch(object):
              & isfinite(d.time) & isfinite(d.error_1))
         m = (d.quality == 0) & isfinite(d.flux_1)
         
-        self.tm = GM(supersampling=10, npol=200)
-        #self.tm = MA(supersampling=10) # Can be switched back when the MA bug is fixed.
-        self.em = MA(supersampling=10, nldc=0)
+        self.tm = GM(supersampling=10, npol=100, nthr=1)
+        #self.tm = MA(supersampling=12, nthr=1) # Can be switched back when the MA bug is fixed.
+        self.em = MA(supersampling=10, nldc=0, nthr=1)
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
