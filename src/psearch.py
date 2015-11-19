@@ -277,29 +277,32 @@ class TransitSearch(object):
         if ax is None:
             fig,ax = subplots(1,2, sharey=True, sharex=True)
 
-        nbin = nbin or self.nbin
-        res  = rarr(self.result)
-        period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = array([-0.5,0.5]) * duration
+        try:
+            nbin = nbin or self.nbin
+            res  = rarr(self.result)
+            period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
+            hdur = array([-0.5,0.5]) * duration
 
-        for time,flux_o in ((self.time_even,self.flux_even),
-                            (self.time_odd,self.flux_odd)):
+            for time,flux_o in ((self.time_even,self.flux_even),
+                                (self.time_odd,self.flux_odd)):
         
-            phase = fold(time, period, zero_epoch, shift=0.5, normalize=False) - 0.5*period
-            flux_m = self.transit_model(self._pv_trf, time)
-            bpd,bfd,bed = uf.bin(phase, flux_o, nbin)
-            bpm,bfm,bem = uf.bin(phase, flux_m, nbin)
-            pmask = abs(bpd) < 1.5*duration
-            omask = pmask & isfinite(bfd)
-            mmask = pmask & isfinite(bfm)
-            ax[0].plot(bpd[omask], bfd[omask], marker='o')
-            ax[1].plot(bpm[mmask], bfm[mmask], marker='o')
+                phase = fold(time, period, zero_epoch, shift=0.5, normalize=False) - 0.5*period
+                flux_m = self.transit_model(self._pv_trf, time)
+                bpd,bfd,bed = uf.bin(phase, flux_o, nbin)
+                bpm,bfm,bem = uf.bin(phase, flux_m, nbin)
+                pmask = abs(bpd) < 1.5*duration
+                omask = pmask & isfinite(bfd)
+                mmask = pmask & isfinite(bfm)
+                ax[0].plot(bpd[omask], bfd[omask], marker='o')
+                ax[1].plot(bpm[mmask], bfm[mmask], marker='o')
 
-        [a.axvline(0, alpha=0.25, ls='--', lw=1) for a in ax]
-        [[a.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur] for a in ax]
-        setp(ax,xlim=3*hdur, xlabel='Phase [d]', ylim=(0.998*nanmin(bfd[pmask]), 1.002*nanmax(bfd[pmask])))
-        setp(ax[0], ylabel='Normalised flux')
-        setp(ax[1].get_yticklabels(), visible=False)
+            [a.axvline(0, alpha=0.25, ls='--', lw=1) for a in ax]
+            [[a.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur] for a in ax]
+            setp(ax,xlim=3*hdur, xlabel='Phase [d]', ylim=(0.998*nanmin(bfd[pmask]), 1.002*nanmax(bfd[pmask])))
+            setp(ax[0], ylabel='Normalised flux')
+            setp(ax[1].get_yticklabels(), visible=False)
+        except ValueError:
+            pass
         return ax
 
 
