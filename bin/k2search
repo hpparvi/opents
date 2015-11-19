@@ -111,7 +111,6 @@ if __name__ == '__main__':
             if time() - time_last_save > 30:
                 save(results)
                 time_last_save = time()
-            sleep(0.15)
 
         for w in free_workers:
             comm.send(-1, dest=w, tag=0)
