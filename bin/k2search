@@ -30,6 +30,7 @@ from pybls import BLS
 from exotk.utils.misc_f import utilities as uf
 from exotk.utils.misc import fold
 from matplotlib import rc
+from collections import OrderedDict
 
 from k2ps.psearch import *
 
@@ -76,17 +77,18 @@ if __name__ == '__main__':
         hdfname = join(args.save_dir, args.run_name+'_bls.h5')
 
         def save(results):
-            with open(pklname, 'w') as fout:
-                dump(results, fout)
-            hdf = pd.HDFStore(hdfname)
-            hdf['planet_search'] = pd.DataFrame(np.hstack(results.values()))
-            hdf.close()
+            if len(results) > 2:
+                with open(pklname, 'w') as fout:
+                    dump(results, fout)
+                hdf = pd.HDFStore(hdfname)
+                hdf['planet_search'] = pd.DataFrame(np.hstack(results.values()))
+                hdf.close()
 
         if exists(pklname):
             with (open(pklname, 'r')) as fin:
                 results = load(fin)
         else:
-            results = {}
+            results = OrderedDict()
 
         time_last_save = time()
         while items or active_workers:
