@@ -17,6 +17,7 @@ from os.path import join, basename, abspath, exists
 from numpy.random import randint
 from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
+from collections import OrderedDict
 
 from matplotlib import rc
 from matplotlib.pyplot import figure, GridSpec, subplot, show
@@ -39,7 +40,7 @@ class Teacher(object):
             with open(savefile, 'r') as f:
                 self.results = load(f)
         else:
-            self.results = {}
+            self.results = OrderedDict()
         
         if pmode == 'v':
             self.fig = figure(figsize=(13,14))
@@ -108,12 +109,17 @@ if __name__ == '__main__':
     ap.add_argument('--data-dir', type=str, default=None)
     ap.add_argument('--start-index', type=int, default=0)
     ap.add_argument('--mode', type=str, default='h')
+    ap.add_argument('--epic', type=int, default=None)
     args = ap.parse_args()
 
     data_dir = args.data_dir or '../../../../../analysis/k2_05/injection_tests/data/reduced/'
     
     files = sorted(glob(join(data_dir,'EPIC_*.fits')))
-    teacher = Teacher(files, args.savefile, args.start_index, args.mode)
+    epics = map(lambda fn:int(basename(fn).split('_')[1]), files)	
+
+    start_index = args.start_index if not args.epic else epics.index(args.epic)
+    
+    teacher = Teacher(files, args.savefile, start_index, args.mode)
 
     #rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
     #head = pf.getheader(rf,1)
