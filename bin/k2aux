@@ -30,9 +30,9 @@ if __name__ == '__main__':
     
     files_raw = sorted(glob(join(args.datadir_raw,'ktwo*.fits')))
     files_red = sorted(glob(join(args.datadir_red,'EPIC_*.fits')))
-    epics = map(lambda fn:int(basename(fn).split('_')[1]), files_red)
+    epics = np.array(map(lambda fn:int(basename(fn).split('_')[1]), files_red), dtype=np.uint32)
 
-    ps, ks, cdppr, cdppc, kernel = [], [], [], [], []
+    ps, ks, cdppr, cdppt, cdppc = [], [], [], [], []
     nfiles = len(files_raw)
     for ifile, (fna,fnb) in enumerate(zip(files_raw,files_red)):
         with pf.open(fna) as hdul:
@@ -40,15 +40,13 @@ if __name__ == '__main__':
             ps.append(hdul[1].header['inj_per'])
         with pf.open(fnb) as hdul:
             cdppr.append(hdul[1].header['cdpp1r'])
+            cdppt.append(hdul[1].header['cdpp1t'])
             cdppc.append(hdul[1].header['cdpp1c'])
-            kernel.append(hdul[1].header['ker_name'])
-            
         print '{:d}/{:d}'.format(ifile,nfiles)
 
-    df_aux = pd.DataFrame(transpose([epics,ks,ps,cdppr,cdppc,kernel]), 
-                          columns='epic RpRs period cdppr cdppc kernel'.split())
-    df_aux.epic = df_aux.epic.astype(np.uint32)
-    df_aux['RpRs period cdppr cdppc'.split()] = df_aux['RpRs period cdppr cdppc'.split()].astype(np.float64)
+    df_aux = pd.DataFrame(transpose([ks,ps,cdppr,cdppt,cdppc]), 
+                          columns='RpRs period cdppr cdppt cdppc'.split(),
+                          index=epics, dtype=np.float32)
     hdf = pd.HDFStore(args.hdfname, mode='r+')
     hdf['aux_data'] = df_aux
     hdf.close()

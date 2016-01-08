@@ -31,7 +31,7 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax, nanmedian)
 
 from acor import acor
 
@@ -88,7 +88,7 @@ class TransitSearch(object):
         self.flux   = (d.flux_1[m] 
                        - d.trend_t_1[m] + median(d.trend_t_1[m]) 
                        - d.trend_p_1[m] + median(d.trend_p_1[m]))
-        self.mflux   = median(d.flux_1[m])
+        self.mflux   = nanmedian(d.flux_1[m])
         self.flux   /= self.mflux
         self.flux_e  = d.error_1[m] / abs(self.mflux)
 
@@ -100,7 +100,7 @@ class TransitSearch(object):
         self.nbin = 500
         self.qmin = 0.001
         self.qmax = 0.2
-        self.nf   = 2500
+        self.nf   = 3500
         
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
