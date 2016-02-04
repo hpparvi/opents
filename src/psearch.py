@@ -31,11 +31,16 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax, nanmedian)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
+
 
 from acor import acor
 
 from matplotlib.pyplot import setp, subplots
+
+def nanmedian(s):
+    m = np.isfinite(s)
+    return np.median(s[m])
 
 ## Array type definitions
 ## ----------------------
