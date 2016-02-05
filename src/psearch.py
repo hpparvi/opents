@@ -90,6 +90,7 @@ class TransitSearch(object):
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
+        tmin, tmax = np.nanmin(self.time), np.nanmax(self.time)
         self.flux   = (d.flux_1[m] 
                        - d.trend_t_1[m] + median(d.trend_t_1[m]) 
                        - d.trend_p_1[m] + median(d.trend_p_1[m]))
@@ -101,7 +102,8 @@ class TransitSearch(object):
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
 
-        self.period_range = (0.75,25)
+        # self.period_range = (0.75,25)
+        self.period_range = (0.75,0.98*(tmax-tmin))
         self.nbin = 500
         self.qmin = 0.001
         self.qmax = 0.2
