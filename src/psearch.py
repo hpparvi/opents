@@ -31,11 +31,16 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax, nanmedian)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
+
 
 from acor import acor
 
 from matplotlib.pyplot import setp, subplots
+
+def nanmedian(s):
+    m = np.isfinite(s)
+    return np.median(s[m])
 
 ## Array type definitions
 ## ----------------------
@@ -82,6 +87,7 @@ class TransitSearch(object):
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
+        tmin, tmax = np.nanmin(self.time), np.nanmax(self.time)
         self.flux   = (d.flux_1[m] 
                        - d.trend_t_1[m] + median(d.trend_t_1[m]) 
                        - d.trend_p_1[m] + median(d.trend_p_1[m]))
@@ -93,7 +99,8 @@ class TransitSearch(object):
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
 
-        self.period_range = (0.75,25)
+        # self.period_range = (0.75,25)
+        self.period_range = (0.75,0.98*(tmax-tmin))
         self.nbin = 500
         self.qmin = 0.001
         self.qmax = 0.2
