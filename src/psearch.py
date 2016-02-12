@@ -31,7 +31,7 @@ from exotk.utils.misc import fold
 from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
-from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, 
+from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, abs,
                    sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
 
 
@@ -100,15 +100,23 @@ class TransitSearch(object):
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
 
-        self.period_range = (0.01,0.98*(tmax-tmin))
+        self.period_range = (0.7,0.98*(tmax-tmin))
         self.nbin = 800
         self.qmin = 0.001
         self.qmax = 0.2
-        self.nf   = 15000
+        self.nf   = 5000
         
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
-        
+
+        def ndist(p=0.302):
+            return 1.-2*abs(((self.bls.period-p)%p)/p-0.5)
+
+        def cmask(s=0.05):
+            return 1.-np.exp(-ndist()/s)
+
+        self.bls.pmul = cmask()
+
         try:
             ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]
         except RuntimeError:
