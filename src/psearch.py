@@ -302,7 +302,7 @@ class TransitSearch(object):
 
             [a.axvline(0, alpha=0.25, ls='--', lw=1) for a in ax]
             [[a.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur] for a in ax]
-            setp(ax,xlim=3*hdur, xlabel='Phase [d]', ylim=(0.998*nanmin(bfd[pmask]), 1.002*nanmax(bfd[pmask])))
+            setp(ax,xlim=3*hdur, xlabel='Phase [d]', ylim=(0.9998*nanmin(bfd[pmask]), 1.0002*nanmax(bfd[pmask])))
             setp(ax[0], ylabel='Normalised flux')
             setp(ax[1].get_yticklabels(), visible=False)
         except ValueError:

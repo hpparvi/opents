@@ -50,6 +50,7 @@ class Teacher(object):
             self.ax_lnlike = subplot(self.gs[3,:])
             self.ax_lcoe   = subplot(self.gs[2,0]),subplot(self.gs[2,1])
             self.ax_sde    = subplot(self.gs[4,:])
+            self.fig.tight_layout()
         elif pmode == 'h':
             self.fig = figure(figsize=(14,10))
             self.gs = GridSpec(3,4)
@@ -58,15 +59,18 @@ class Teacher(object):
             self.ax_lnlike = subplot(self.gs[0,2:])
             self.ax_sde    = subplot(self.gs[1,2:])
             self.ax_lcoe   = subplot(self.gs[2,:2]),subplot(self.gs[2,2:])
+            self.fig.tight_layout()
+            self.fig.subplots_adjust(bottom=0.06, left=0.05, hspace=0.2, wspace=0.19)
         self.axes = [self.ax_lctime, self.ax_lcfold, self.ax_lnlike, self.ax_sde,
                      self.ax_lcoe[0], self.ax_lcoe[1]]
         cid = self.fig.canvas.mpl_connect('key_press_event', self.key_pressed)
-        self.fig.tight_layout()
+
         self.compute(self.fid)
 
         
     def compute(self, fid):
         self.fid = fid
+        self.epic = self.epics[fid]
         self.ts = TransitSearch(self.files[fid])
         self.ts()
         [a.cla() for a in self.axes]
@@ -98,7 +102,10 @@ class Teacher(object):
             self._cres['type'] = 'bad_detrending'
         elif event.key == 'w':
             print pd.DataFrame(np.hstack(self.results.values()))
-        elif event.key == 'shift+s':
+        elif event.key == 'ctrl+p':
+            print self.epic
+            self.fig.savefig('EPIC_{:9d}.pdf'.format(self.epic))
+        elif event.key == 'S':
             with open(self.savefile, 'w') as f:
                 dump(self.results, f)
             
@@ -120,17 +127,4 @@ if __name__ == '__main__':
     start_index = args.start_index if not args.epic else epics.index(args.epic)
     
     teacher = Teacher(files, args.savefile, start_index, args.mode)
-
-    #rf = '../../../../../analysis/k2_05/injection_tests/data/raw/ktwo{:9d}-c05_llc.fits'.format(ts.epic)
-    #head = pf.getheader(rf,1)
-
-    #print ts._rbls['bls_period'], head['inj_per'], head['inj_k'], head['inj_k']**2, '\n'
-
-    #r = rarr(ts.result)
-    #print 'lnlike 0: {:10.2f}'.format(float(r.lnlike_constant))
-    #print 'lnlike 1: {:10.2f}'.format(float(r.lnlike_transit))
-    #print 'lnlike 2: {:10.2f}'.format(float(r.lnlike_sine))
-    #print 'lnlike 3: {:10.2f}'.format(float(r.lnlike_oe))
-
-
     show()
