@@ -1,4 +1,3 @@
-K2 Injection tests
-==================
+# K2 Planet search
 
-Transit search sensitivity tests using K2 campaign 5 light curves.
+Oxford K2 planet search pipeline.
