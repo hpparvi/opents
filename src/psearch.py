@@ -12,6 +12,7 @@ from glob import glob
 from copy import copy
 from os.path import join, basename, abspath
 from scipy.ndimage import binary_dilation, binary_erosion
+from scipy.stats import scoreatpercentile
 
 from pytransit import MandelAgol as MA
 from pytransit import Gimenez as GM
@@ -55,7 +56,6 @@ dt_varresult = str_to_dt('lnlike_sine f8, sine_amplitude f8')
 dt_oeresult  = str_to_dt('lnlike_oe f8, oe_diff_k f8, oe_diff_a f8, oe_diff_b f8')
 dt_poresult  = str_to_dt('po_lnlike_med f8, po_lnlike_std f8, po_lnlike_max f8, po_lnlike_min f8')
 
-## TODO: Number of orbits likelihood over and under N sigma 
 
 class TransitSearch(object):
     """K2 transit search and candidate vetting
@@ -85,6 +85,7 @@ class TransitSearch(object):
         self.tm = MA(supersampling=12, nthr=1) 
         self.em = MA(supersampling=10, nldc=0, nthr=1)
 
+        self.d = d
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
         tmin, tmax = np.nanmin(self.time), np.nanmax(self.time)
@@ -99,12 +100,11 @@ class TransitSearch(object):
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
 
-        # self.period_range = (0.75,25)
-        self.period_range = (0.75,0.98*(tmax-tmin))
-        self.nbin = 500
+        self.period_range = (0.01,0.98*(tmax-tmin))
+        self.nbin = 800
         self.qmin = 0.001
         self.qmax = 0.2
-        self.nf   = 3500
+        self.nf   = 15000
         
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
@@ -176,7 +176,7 @@ class TransitSearch(object):
     
     def fit_transit(self):
         def minfun(pv):
-            if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1): return inf
+            if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1) or not (0.75<pv[0]<80): return inf
             return -ll_normal_es(self.flux, self.transit_model(pv), self.flux_e)
         
         mr = minimize(minfun, self._pv_bls, method='powell')
@@ -231,7 +231,16 @@ class TransitSearch(object):
         _i = mt.acos(pv[4]/pv[3])
         return self.tm.evaluate(time, pv[2], [0.4, 0.1], pv[1], pv[0], pv[3], _i)
     
-    
+    def eclipse_model(self, shift, time=None):
+        time = self.time if time is None else time
+        pv = self._pv_trf
+        _i = mt.acos(pv[4]/pv[3])
+        return self.em.evaluate(time, pv[2], [], pv[1]+(0.5+shift)*pv[0], pv[0], pv[3], _i)
+
+
+    def eclipse_likelihood(self, f, shift, time=None):
+        return ll_normal_es(self.flux, (1-f)+f*self.eclipse_model(shift, time), self.flux_e)
+
     ## Plotting
     ## --------
     def plot_lc_time(self, ax=None):
@@ -241,7 +250,7 @@ class TransitSearch(object):
         ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
         ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
         ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
-        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(3)]
+        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(15)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
         return ax
     
@@ -307,6 +316,19 @@ class TransitSearch(object):
             setp(ax[1].get_yticklabels(), visible=False)
         except ValueError:
             pass
+        return ax
+
+
+    def plot_eclipse(self, ax=None):
+        if ax is None:
+            fig,ax = subplots(1,1)
+
+        shifts = np.linspace(-0.2,0.2, 500)
+        ll0 = self.eclipse_likelihood(0.0, 0.0)
+        ll1 = array([self.eclipse_likelihood(0.01, shift) for shift in shifts])
+
+        ax.plot(0.5+shifts, ll1-ll0)
+        setp(ax, xlim=(0.3,0.7), ylabel='ln likelihood', xlabel='Phase shift')
         return ax
 
 
