@@ -32,7 +32,8 @@ from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, abs,
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax)
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
+                   argsort)
 
 
 from acor import acor
@@ -327,6 +328,81 @@ class TransitSearch(object):
         return ax
 
 
+    def plot_transits(self, ax=None):
+        if ax is None:
+            fig,ax = subplots(1,1)
+        
+        r = self.result
+        for i,(t,f) in enumerate(zip(self.times, self.fluxes)):
+            phase = fold(t, r['trf_period'], r['trf_zero_epoch'], 0.5, normalize=False) - 0.5*r['trf_period']
+            pmask = abs(phase) < 2*r['trf_duration']
+            if any(pmask):
+                ax.plot(24*phase[pmask], f[pmask]+i*r['trf_depth'])
+                ymax = (f[pmask]+i*r['trf_depth']).max()
+
+        setp(ax, xlim=(-24*2*r['trf_duration'],24*2*r['trf_duration']), xlabel='BJD - t$_0$ [h]', yticks=[],
+             ylim=(1-1.001*r['trf_depth'], ymax))
+
+
+    def plot_transit_fit(self, ax=None):
+        if ax is None:
+            fig,ax = subplots(1,1)
+        try:
+            res  = rarr(self.result)
+            period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
+            hdur = array([-0.5,0.5]) * duration
+
+            flux_m = self.transit_model(self._pv_trf)
+            phase = fold(self.time, period, zero_epoch, 0.5, normalize=False) - 0.5*period
+            sids = argsort(phase)
+            phase = phase[sids]
+            pmask = abs(phase) < 2*duration
+            flux_m = flux_m[sids]
+            flux_o = self.flux[sids]
+            ax.plot(24*phase[pmask], flux_o[pmask], '.')
+            ax.plot(24*phase[pmask], flux_m[pmask], 'k')
+
+            ax.axvline(0, alpha=0.25, ls='--', lw=1)
+            [ax.axvline(24*hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
+
+            setp(ax, xlim=(-24*2*duration,24*2*duration), xlabel='BJD - t$_0$ [h]')
+            setp(ax,xlim=24*3*hdur)
+            setp(ax, ylabel='Normalised flux')
+        except ValueError:
+            pass
+        return ax    
+
+
+    def plot_fit_and_eo(self, ax=None, nbin=None):
+        if ax is None:
+            fig,ax = subplots(1,2, sharey=True, sharex=True)
+
+        try:
+            nbin = nbin or self.nbin
+            res  = rarr(self.result)
+            period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
+            hdur = array([-0.5,0.5]) * duration
+
+            self.plot_transit_fit(ax[0])
+
+            for time,flux_o in ((self.time_even,self.flux_even),
+                                (self.time_odd,self.flux_odd)):
+
+                phase = fold(time, period, zero_epoch, shift=0.5, normalize=False) - 0.5*period
+                bpd,bfd,bed = uf.bin(phase, flux_o, nbin)
+                pmask = abs(bpd) < 1.5*duration
+                omask = pmask & isfinite(bfd)
+                ax[1].plot(24*bpd[omask], bfd[omask], marker='o', ms=2)
+
+            [a.axvline(0, alpha=0.25, ls='--', lw=1) for a in ax]
+            [[a.axvline(24*hd, alpha=0.25, ls='-', lw=1) for hd in hdur] for a in ax]
+            setp(ax,xlim=24*3*hdur, xlabel='Phase [h]', ylim=(0.9998*nanmin(bfd[pmask]), 1.0002*nanmax(bfd[pmask])))
+            setp(ax[0], ylabel='Normalised flux')
+            setp(ax[1].get_yticklabels(), visible=False)
+        except ValueError:
+            pass
+        return ax
+
     def plot_eclipse(self, ax=None):
         if ax is None:
             fig,ax = subplots(1,1)
@@ -335,15 +411,15 @@ class TransitSearch(object):
         ll0 = self.eclipse_likelihood(0.0, 0.0)
         ll1 = array([self.eclipse_likelihood(0.01, shift) for shift in shifts])
 
-        ax.plot(0.5+shifts, ll1-ll0)
-        setp(ax, xlim=(0.3,0.7), ylabel='ln likelihood', xlabel='Phase shift')
+        ax.plot(0.5+shifts, ll1-ll1.min())
+        setp(ax, xlim=(0.3,0.7), xticks=(0.35,0.5,0.65), ylabel='$\Delta$ ln likelihood', xlabel='Phase shift')
         return ax
 
 
     def plot_lnlike(self, ax=None):
         if ax is None:
             fig,ax = subplots(1,1)
-        ax.plot(self._tr_lnlike_po, marker='.', markersize=20)
+        ax.plot(self._tr_lnlike_po, marker='.', markersize=10)
         ax.axhline(self._tr_lnlike_med, ls='--', alpha=0.6)
         [ax.axhline(self._tr_lnlike_med+s*self._tr_lnlike_std, ls=':', alpha=a)
          for s,a in zip((-1,1,-2,2,-3,3), (0.6,0.6,0.4,0.4,0.2,0.2))]
@@ -361,4 +437,24 @@ class TransitSearch(object):
         ax.text(0.97,0.87, 'Best period: {:4.2f} days'.format(float(r.bls_period)),
                 ha='right', transform=ax.transAxes)
         setp(ax,xlim=self.bls.period[[-1,0]], xlabel='Period [d]', ylabel='SDE')
+        return ax
+
+
+    def plot_info(self, ax):
+        if ax is None:
+            fig,ax = subplots(1,1)
+        res  = rarr(self.result)
+        t0,p,tdur,tdep,rrat = res.trf_zero_epoch[0], res.trf_period[0], res.trf_duration[0], res.trf_depth[0], 0
+
+        ax.text(0.0,1.0, 'EPIC {:9d}'.format(self.epic), size=12, weight='bold', va='top', transform=ax.transAxes)
+        ax.text(0.0,0.8, ('SDE\nZero epoch\n'
+                           'Period [h]\n'
+                           'Radius ratio\n'
+                           'Transit duration [h]\n'
+                           'Impact parameter'), size=8, va='top')
+        ax.text(0.97,0.8, ('{:9.3f}\n{:9.3f}\n{:9.3f}\n{:9.4f}\n'
+                           '{:9.3f}\n{:9.3f}').format(res.sde[0], t0,p,sqrt(tdep),24*tdur,res.trf_impact_parameter[0]), size=8, va='top', ha='right')
+
+        sb.despine(ax=ax, left=True, bottom=True)
+        setp(ax, xticks=[], yticks=[])
         return ax
