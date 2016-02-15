@@ -127,12 +127,13 @@ if __name__ == '__main__':
     ## -----------
     else:
         if args.do_plots:
+            PW,PH = 8.27, 11.69
             rc('axes', labelsize=7, titlesize=8)
             rc('font', size=6)
             rc('xtick', labelsize=7)
             rc('ytick', labelsize=7)
             rc('lines', linewidth=1)
-            fig = pl.figure(figsize=(AAPGW,1.5*AAPGW))
+            fig = pl.figure(figsize=(PW,PH))
             gs = GridSpec(6,3)
             ax_lctime = subplot(gs[0:2,:])
             ax_lcfold = subplot(gs[4,1:])
@@ -167,7 +168,6 @@ if __name__ == '__main__':
                 ax_lcoe[0].set_title('Folded transit and model')
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
-                ax_sde.set_title('SDE')
                 fig.tight_layout()
                 fig.savefig(join(args.plot_dir,'epic_{:9d}.pdf'.format(ts.epic)))
 
