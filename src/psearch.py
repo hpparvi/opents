@@ -23,7 +23,6 @@ from exotk.utils.likelihood import ll_normal_es
 from scipy.optimize import minimize
 
 from mpi4py import MPI
-from pybls import BLS
 from pytransit import MandelAgol as MA
 from pytransit.orbits_f import orbits as of
 from exotk.utils.orbits import as_from_rhop, i_from_baew
@@ -35,12 +34,12 @@ from numpy.lib.recfunctions import stack_arrays, merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, abs,
                    sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
-                   argsort)
-
+                   log, exp, argsort)
 
 from acor import acor
 
 from matplotlib.pyplot import setp, subplots
+from bls import BLS
 
 def nanmedian(s):
     m = np.isfinite(s)
@@ -105,13 +104,13 @@ class TransitSearch(object):
         self.trend_p = d.trend_p_1[m] / self.mflux
 
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
-        self.nbin = kwargs.get('nbin',800)
+        self.nbin = kwargs.get('nbin',900)
         self.qmin = kwargs.get('qmin',0.002)
         self.qmax = kwargs.get('qmax',0.115)
-        self.nf   = kwargs.get('nfreq',5000)
+        self.nf   = kwargs.get('nfreq',10000)
         
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
-                        nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf)
+                        nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf, pmean='running_median')
 
         def ndist(p=0.302):
             return 1.-2*abs(((self.bls.period-p)%p)/p-0.5)
@@ -366,6 +365,8 @@ class TransitSearch(object):
         flux_o = self.flux[sids]
         ax.plot(phase[pmask], flux_o[pmask], '.')
         ax.plot(phase[pmask], flux_m[pmask], 'k')
+        ax.text(2.5*hdur[0], flux_m.min(), '{:6.4f}'.format(flux_m.min()), size=7, va='center', bbox=dict(color='white'))
+        ax.axhline(flux_m.min(), alpha=0.25, ls='--')
 
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)
@@ -405,8 +406,11 @@ class TransitSearch(object):
         shifts = np.linspace(-0.2,0.2, 500)
         ll0 = self.eclipse_likelihood(0.0, 0.0)
         ll1 = array([self.eclipse_likelihood(0.01, shift) for shift in shifts])
+        ll1_max = ll1.max()
+        lnlratio = log(exp(ll1-ll1_max).mean())+ll1_max - ll0
 
         ax.plot(0.5+shifts, ll1-ll1.min())
+        ax.text(0.02, 0.9, 'ln (P$_e$/P$_f$) = {:3.2f}'.format(lnlratio), size=7, transform=ax.transAxes)
         setp(ax, xlim=(0.3,0.7), xticks=(0.35,0.5,0.65), ylabel='$\Delta$ ln likelihood', xlabel='Phase shift')
         setp(ax.get_yticklabels(), visible=False)
         ax.set_title('Secondary eclipse')
