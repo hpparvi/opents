@@ -238,7 +238,10 @@ class TransitSearch(object):
     def fit_variability(self):
         def minfun(pv, period, zero_epoch):
             if any(pv<0): return inf
-            return -ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
+            dummy = []
+            for j in range(4):
+                dummy.append(-ll_normal_es(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
+            return np.min(dummy)#-ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
         
         mr = minimize(minfun, [self.flux.std()],
                       args=(self._rbls['bls_period'],self._rbls['bls_zero_epoch']), method='powell')
