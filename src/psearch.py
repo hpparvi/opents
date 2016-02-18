@@ -57,7 +57,7 @@ dt_trfresult = str_to_dt('lnlike_transit f8, trf_zero_epoch f8, trf_period f8, t
 dt_varresult = str_to_dt('lnlike_sine f8, sine_amplitude f8')
 dt_oeresult  = str_to_dt('lnlike_oe f8, oe_diff_k f8, oe_diff_a f8, oe_diff_b f8')
 dt_poresult  = str_to_dt('po_lnlike_med f8, po_lnlike_std f8, po_lnlike_max f8, po_lnlike_min f8')
-dt_ecresult  = str_to_dt('ec_lnlratio f8')
+dt_ecresult  = str_to_dt('ec_lnlratio f8, shift f8')
 
 class TransitSearch(object):
     """K2 transit search and candidate vetting
@@ -247,13 +247,14 @@ class TransitSearch(object):
                       args=(self._rbls['bls_period'],self._rbls['bls_zero_epoch']), method='powell')
         self._rvar = array((-mr.fun, mr.x), dt_varresult)
 
+
     def test_eclipse(self):
         self.ec_shifts  = shifts = np.linspace(-0.2,0.2, 500)
         self.ec_ll0     = ll0 = self.eclipse_likelihood(0.0, 0.0)
         self.ec_ll1     = ll1 = array([self.eclipse_likelihood(0.01, shift) for shift in shifts])
         ll1_max = ll1.max()
         self.ec_lnratio = lnlratio = log(exp(ll1-ll1_max).mean())+ll1_max - ll0
-        self._recl = array((self.ec_lnratio), dt_ecresult)
+        self._recl = array((self.ec_lnratio, self.ec_shifts[np.argmax(self.ec_lnratio)]), dt_ecresult)
         
     ## Models
     ## ------

@@ -79,23 +79,15 @@ if __name__ == '__main__':
         n_items = len(items)
         n_finished_items = 0
 
-        pklname = join(args.save_dir, args.run_name+'_bls.pkl')
         hdfname = join(args.save_dir, args.run_name+'_bls.h5')
 
         def save(results):
             if len(results) > 2:
-                with open(pklname, 'w') as fout:
-                    dump(results, fout)
                 hdf = pd.HDFStore(hdfname)
                 hdf['planet_search'] = pd.DataFrame(np.hstack(results.values()))
                 hdf.close()
 
-        if exists(pklname):
-            with (open(pklname, 'r')) as fin:
-                results = load(fin)
-        else:
-            results = OrderedDict()
-
+        results = OrderedDict()
         time_last_save = time()
         while items or active_workers:
             ## Send an item
