@@ -51,7 +51,7 @@ if __name__ == '__main__':
     ap.add_argument('--save-dir', default='.', type=str)
     ap.add_argument('--plot-dir', default='.', type=str)
     ap.add_argument('--do-plots', action='store_true', default=False)
-    ap.add_argumet('--plot-format',default='pdf',type=str)
+    ap.add_argument('--plot-format',default='pdf',type=str)
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
     args = ap.parse_args()
