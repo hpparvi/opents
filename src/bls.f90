@@ -1,3 +1,12 @@
+!!
+!! Module with routines to compute a BLS spectrum given a photometric time series.
+!!
+!! Adapted from the Fortran70 code available from
+!!
+!!  http://www.konkoly.hu/staff/kovacs/eebls.f
+!!
+!! Kovacs, Zucker & Mazeh 2002, A&A, Vol. 391, 369 
+!!
 module bls
   implicit none
   
@@ -28,25 +37,7 @@ contains
 
   end subroutine bin
 
-  subroutine eebls(n,t,x,e,freq,nb,qmi,qma,pmul,nf,p,bper,bpow,depth,qtran,in1,in2)
-    !!
-    !!------------------------------------------------------------------------
-    !!     >>>>>>>>>>>> This routine computes BLS spectrum <<<<<<<<<<<<<<
-    !!
-    !!         [ see Kovacs, Zucker & Mazeh 2002, A&A, Vol. 391, 369 ]
-    !!
-    !!     This is the slightly modified version of the original BLS routine 
-    !!     by considering Edge Effect (EE) as suggested by 
-    !!     Peter R. McCullough [ pmcc@stsci.edu ].
-    !!
-    !!     This modification was motivated by considering the cases when 
-    !!     the low state (the transit event) happened to be devided between 
-    !!     the first and last bins. In these rare cases the original BLS 
-    !!     yields lower detection efficiency because of the lower number of 
-    !!     data points in the bin(s) covering the low state. 
-    !!
-    !!     For further comments/tests see  www.konkoly.hu/staff/kovacs.html
-    !!------------------------------------------------------------------------
+  subroutine eebls(np,t,x,e,freq,nb,qmi,qma,pmul,nf,p,bper,bpow,depth,qtran,in1,in2)
     !!
     !!     Input parameters:
     !!     ~~~~~~~~~~~~~~~~~
@@ -95,17 +86,17 @@ contains
     implicit none
     integer, parameter :: MINBIN = 10
 
-    integer, intent(in) :: n, nf, nb
+    integer, intent(in) :: np, nf, nb
     real(8), intent(in) :: qmi, qma
-    real(8), intent(in), dimension(n) :: t, x, e
+    real(8), intent(in), dimension(np) :: t, x, e
     real(8), intent(in), dimension(nf) :: freq, pmul
     integer, intent(out) :: in1, in2
     real(8), intent(out) :: bper, bpow, depth, qtran
     real(8), intent(out), dimension(nf) :: p
 
     integer :: kmi, kma, i, j, k, jf, jn1, jn2
-    real(8) :: rn, rn3, s, s3, ph, pow, power, f0, p0, ww, minw
-    real(8), dimension(n) :: u, v, w
+    real(8) :: rn, rn3, s, s3, ph, pow, power, period, ww, minw
+    real(8), dimension(np) :: u, v, w
 
     real(8), dimension(:), allocatable :: y, ws
     
@@ -113,7 +104,7 @@ contains
 
     !!------------------------------------------------------------------------
     !!
-    rn=real(n, 8)
+    rn=real(np, 8)
     kmi=int(qmi*real(nb, 8))
     if(kmi < 1) kmi=1
     kma=int(qma*real(nb, 8))+1
@@ -134,20 +125,19 @@ contains
     !!     Start period search     *
     !!******************************
     !$omp parallel do default(none) &
-    !$omp private(i,j,k,s,ws,ww,jf,f0,p0,y,ph,pow,power,jn1,jn2,rn3,s3) &
-    !$omp shared(p,u,v,w,n,nf,nb,pmul,freq,kma,kmi,qmi,minw,bpow,rn,in1,in2,qtran,depth,bper)
+    !$omp private(i,j,k,s,ws,ww,jf,period,y,ph,pow,power,jn1,jn2,rn3,s3) &
+    !$omp shared(p,u,v,w,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,bpow,rn,in1,in2,qtran,depth,bper)
     do jf=1,nf
-       f0 = freq(jf)
-       p0 = 1.0d0/f0
+       period = 1.0d0/freq(jf)
        
        !!======================================================
-       !!     Compute folded time series with  *p0*  period
+       !!     Compute folded time series with  *period*  period
        !!======================================================
        y  = 0.0d0
        ws = 0.0d0
 
-       do i=1,n
-          ph     = mod(u(i)*f0, 1.0d0)
+       do i=1,np
+          ph     = mod(u(i)*freq(jf), 1.0d0)
           j      = 1 + int(nb*ph)
           ws(j)  = ws(j) + w(i)
           y(j)   = y(j) + w(i)*v(i)
@@ -201,7 +191,7 @@ contains
           in2   =  jn2
           qtran =  rn3
           depth = -s3*1.d0/(rn3*(1.d0-rn3))
-          bper  =  p0
+          bper  =  period
        end if
        !$omp end critical
     end do

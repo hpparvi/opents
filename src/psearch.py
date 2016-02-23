@@ -239,7 +239,7 @@ class TransitSearch(object):
         def minfun(pv, period, zero_epoch):
             if any(pv<0): return inf
             dummy = []
-            for j in np.arange(4):
+            for j in range(4):
                 dummy.append(-ll_normal_es(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
             return np.nanmin(dummy)#-ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
         

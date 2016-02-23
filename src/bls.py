@@ -49,6 +49,8 @@ class BLS(object):
     def __call__(self):
         self.result = BLSResult(*bls.eebls(self.time, self.flux, self.error, self.freqs,
                                           self.nbin, self.qmin, self.qmax, self.pmul))
+        if self.result.in2 < self.result.in1:
+            self.result.in2 += self.nbin
         return self.result
         
 
@@ -96,6 +98,11 @@ class BLS(object):
     def p2(self):
         """Returns the end-of-transit phase"""
         return fold(self.t2, self.result.bper, self.tc, 0.5) - 0.5
+
+    @property
+    def duration(self):
+        """Returns the approximate transit duration"""
+        return self.t2 - self.t1
 
 
 class BLSResult(object):
