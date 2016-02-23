@@ -90,15 +90,15 @@ contains
     real(8), intent(in) :: qmi, qma
     real(8), intent(in), dimension(np) :: t, x, e
     real(8), intent(in), dimension(nf) :: freq, pmul
-    integer, intent(out) :: in1, in2
-    real(8), intent(out) :: bper, bpow, depth, qtran
-    real(8), intent(out), dimension(nf) :: p
+    integer, intent(out), dimension(nf) :: in1, in2
+    real(8), intent(out) :: bper, bpow
+    real(8), intent(out), dimension(nf) :: p, depth, qtran
 
     integer :: kmi, kma, i, j, k, jf, jn1, jn2
-    real(8) :: rn, rn3, s, s3, ph, pow, power, period, ww, minw
-    real(8), dimension(np) :: u, v, w
+    real(8) :: rn, rn3, s, s3, phase, pow, power, period, ww, minw
+    real(8), dimension(np) :: ntime, nflux, w
 
-    real(8), dimension(:), allocatable :: y, ws
+    real(8), dimension(:), allocatable :: bflux, bweights
     
     minw = 0.75d0 / real(nb,8)
 
@@ -110,13 +110,13 @@ contains
     kma=int(qma*real(nb, 8))+1
     bpow=0.0d0
     
-    allocate(y(nb+kma), ws(nb+kma))
+    allocate(bflux(nb+kma), bweights(nb+kma))
 
     !!=================================
     !!     Set temporal time series
     !!=================================
-    u = t - t(1)
-    v = x - sum(x)/rn
+    ntime = t - t(1)
+    nflux = x - sum(x)/rn
  
     !! Compute point weights
     w = e**(-2)/sum(e**(-2))
@@ -125,22 +125,22 @@ contains
     !!     Start period search     *
     !!******************************
     !$omp parallel do default(none) &
-    !$omp private(i,j,k,s,ws,ww,jf,period,y,ph,pow,power,jn1,jn2,rn3,s3) &
-    !$omp shared(p,u,v,w,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,bpow,rn,in1,in2,qtran,depth,bper)
+    !$omp private(i,j,k,s,bweights,ww,jf,period,bflux,phase,pow,power,jn1,jn2,rn3,s3) &
+    !$omp shared(p,ntime,nflux,w,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,bpow,rn,in1,in2,qtran,depth,bper)
     do jf=1,nf
        period = 1.0d0/freq(jf)
        
        !!======================================================
        !!     Compute folded time series with  *period*  period
        !!======================================================
-       y  = 0.0d0
-       ws = 0.0d0
+       bflux    = 0.0d0
+       bweights = 0.0d0
 
        do i=1,np
-          ph     = mod(u(i)*freq(jf), 1.0d0)
-          j      = 1 + int(nb*ph)
-          ws(j)  = ws(j) + w(i)
-          y(j)   = y(j) + w(i)*v(i)
+          phase       = mod(ntime(i)*freq(jf), 1.0d0)
+          j           = 1 + int(nb*phase)
+          bweights(j) = bweights(j) + w(i)
+          bflux(j)    =    bflux(j) + w(i)*nflux(i)
        end do
 
        !!-----------------------------------------------
@@ -148,8 +148,8 @@ contains
        !!     nb   by  wrapping
        !!
        do j=nb+1, nb+kma
-          y(j)   = y(j-nb)
-          ws(j)  = ws(j-nb)
+          bflux(j)    = bflux(j-nb)
+          bweights(j) = bweights(j-nb)
        end do
        !!-----------------------------------------------   
 
@@ -164,8 +164,8 @@ contains
           ww    = 0.0d0 
           do j=i, i+kma
              k     = k+1
-             ww    = ww+ws(j)
-             s     = s+y(j)
+             ww    = ww+bweights(j)
+             s     = s+bflux(j)
              if ((k > kmi) .and. (ww>qmi) .and. (ww > k*minw)) then
                 pow   = s*s/(ww*(1.d0-ww))
 
@@ -182,15 +182,17 @@ contains
 
        power = sqrt(power)
        power = power * pmul(jf) + (1.d0-pmul(jf))*sum(p(:jf))/real(jf,8)
-       p(jf) = power
+
+       p(jf)     = power
+       in1(jf)   = jn1
+       in2(jf)   = jn2
+       qtran(jf) = rn3
+       depth(jf) = -s3*1.d0/(rn3*(1.d0-rn3))
+
 
        !$omp critical
        if(power > bpow) then
           bpow  =  power
-          in1   =  jn1
-          in2   =  jn2
-          qtran =  rn3
-          depth = -s3*1.d0/(rn3*(1.d0-rn3))
           bper  =  period
        end if
        !$omp end critical
@@ -198,9 +200,9 @@ contains
     !$omp end parallel do
 
     !! Edge correction of transit end index
-    if(in2 > nb) in2 = in2-nb     
+    if(in2(jf) > nb) in2(jf) = in2(jf)-nb     
 
-    deallocate(y,ws)
+    deallocate(bflux,bweights)
 
   end subroutine eebls
 end module bls
