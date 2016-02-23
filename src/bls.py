@@ -141,7 +141,7 @@ class BLS(object):
 
 
 class BLSResult(object):
-    def __init__(self, p, bper, bpow, depth, qtran, in1, in2):
+    def __init__(self, p, depth, qtran, in1, in2):
         self.power = p 
         self.depth = depth
         self.qtran = qtran

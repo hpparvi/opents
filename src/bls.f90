@@ -37,7 +37,7 @@ contains
 
   end subroutine bin
 
-  subroutine eebls(np,t,x,e,freq,nb,qmi,qma,pmul,nf,p,bper,bpow,depth,qtran,in1,in2)
+  subroutine eebls(np,t,x,e,freq,nb,qmi,qma,pmul,nf,p,depth,qtran,in1,in2)
     !!
     !!     Input parameters:
     !!     ~~~~~~~~~~~~~~~~~
@@ -45,6 +45,7 @@ contains
     !!     n    = number of data points
     !!     t    = array {t(i)}, containing the time values of the time series
     !!     x    = array {x(i)}, containing the data values of the time series
+    !!     e    = array {e(i)}, containing the error values of the time series
     !!     u    = temporal/work/dummy array, must be dimensioned in the 
     !!            calling program in the same way as  {t(i)}
     !!     v    = the same as  {u(i)}
@@ -54,14 +55,12 @@ contains
     !!     qmi  = minimum fractional transit length to be tested
     !!     qma  = maximum fractional transit length to be tested
     !!
-    !!     Output parameters:
+    !!     Returns
     !!     ~~~~~~~~~~~~~~~~~~
     !!
     !!     p    = array {p(i)}, containing the values of the BLS spectrum
     !!            at the i-th frequency value -- the frequency values are 
     !!            computed as  f = fmin + (i-1)*df
-    !!     bper = period at the highest peak in the frequency spectrum
-    !!     bpow = value of {p(i)} at the highest peak
     !!     depth= depth of the transit at   *bper*
     !!     qtran= fractional transit length  [ T_transit/bper ]
     !!     in1  = bin index at the start of the transit [ 0 < in1 < nb+1 ]
@@ -91,80 +90,56 @@ contains
     real(8), intent(in), dimension(np) :: t, x, e
     real(8), intent(in), dimension(nf) :: freq, pmul
     integer, intent(out), dimension(nf) :: in1, in2
-    real(8), intent(out) :: bper, bpow
     real(8), intent(out), dimension(nf) :: p, depth, qtran
 
     integer :: kmi, kma, i, j, k, jf, jn1, jn2
-    real(8) :: rn, rn3, s, s3, phase, pow, power, period, ww, minw
-    real(8), dimension(np) :: ntime, nflux, w
+    real(8) :: rn3, s, s3, pow, power, ww, minw
+    real(8), dimension(np) :: ntime, nflux, wght
 
-    real(8), dimension(:), allocatable :: bflux, bweights
+    real(8), dimension(:), allocatable :: bflux, bwght
     
     minw = 0.75d0 / real(nb,8)
-
-    !!------------------------------------------------------------------------
-    !!
-    rn=real(np, 8)
-    kmi=int(qmi*real(nb, 8))
-    if(kmi < 1) kmi=1
+    kmi=max(1, int(qmi*real(nb, 8)))
     kma=int(qma*real(nb, 8))+1
-    bpow=0.0d0
     
-    allocate(bflux(nb+kma), bweights(nb+kma))
+    allocate(bflux(nb+kma), bwght(nb+kma))
 
-    !!=================================
-    !!     Set temporal time series
-    !!=================================
     ntime = t - t(1)
-    nflux = x - sum(x)/rn
- 
-    !! Compute point weights
-    w = e**(-2)/sum(e**(-2))
+    nflux = x - sum(x)/real(np, 8)
+    wght  = e**(-2)/sum(e**(-2))
 
-    !!******************************
-    !!     Start period search     *
-    !!******************************
     !$omp parallel do default(none) &
-    !$omp private(i,j,k,s,bweights,ww,jf,period,bflux,phase,pow,power,jn1,jn2,rn3,s3) &
-    !$omp shared(p,ntime,nflux,w,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,bpow,rn,in1,in2,qtran,depth,bper)
+    !$omp private(i,j,k,s,bwght,ww,jf,bflux,pow,power,jn1,jn2,rn3,s3) &
+    !$omp shared(p,ntime,nflux,wght,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,rn,in1,in2,qtran,depth)
     do jf=1,nf
-       period = 1.0d0/freq(jf)
-       
-       !!======================================================
-       !!     Compute folded time series with  *period*  period
-       !!======================================================
-       bflux    = 0.0d0
-       bweights = 0.0d0
 
+       !! Fold and bin the fluxes and weights
+       !! -----------------------------------
+       bflux = 0.0d0
+       bwght = 0.0d0
        do i=1,np
-          phase       = mod(ntime(i)*freq(jf), 1.0d0)
-          j           = 1 + int(nb*phase)
-          bweights(j) = bweights(j) + w(i)
-          bflux(j)    =    bflux(j) + w(i)*nflux(i)
+          j        = 1 + int(nb*mod(ntime(i)*freq(jf), 1.0d0))
+          bwght(j) = bwght(j) + wght(i)
+          bflux(j) = bflux(j) + wght(i)*nflux(i)
        end do
 
-       !!-----------------------------------------------
-       !!     Extend the arrays  ibi()  and  y() beyond  
-       !!     nb   by  wrapping
-       !!
+       !! Extend the binned arrays by wrapping
+       !!-------------------------------------
        do j=nb+1, nb+kma
-          bflux(j)    = bflux(j-nb)
-          bweights(j) = bweights(j-nb)
+          bflux(j) = bflux(j-nb)
+          bwght(j) = bwght(j-nb)
        end do
-       !!-----------------------------------------------   
 
-       !!===============================================
-       !!     Compute BLS statistics for this period
-       !!===============================================
+       !! Compute the BLS statistics
+       !!---------------------------
        power=0.0d0
-
        do i=1,nb
-          s     = 0.0d0
           k     = 0
+          s     = 0.0d0
           ww    = 0.0d0 
           do j=i, i+kma
              k     = k+1
-             ww    = ww+bweights(j)
+             ww    = ww+bwght(j)
              s     = s+bflux(j)
              if ((k > kmi) .and. (ww>qmi) .and. (ww > k*minw)) then
                 pow   = s*s/(ww*(1.d0-ww))
@@ -180,29 +155,21 @@ contains
           end do
        end do
 
+       !! Store the results for this period
+       !! ---------------------------------
        power = sqrt(power)
        power = power * pmul(jf) + (1.d0-pmul(jf))*sum(p(:jf))/real(jf,8)
-
        p(jf)     = power
        in1(jf)   = jn1
        in2(jf)   = jn2
        qtran(jf) = rn3
        depth(jf) = -s3*1.d0/(rn3*(1.d0-rn3))
+       if(in2(jf) > nb) in2(jf) = in2(jf)-nb     
 
-
-       !$omp critical
-       if(power > bpow) then
-          bpow  =  power
-          bper  =  period
-       end if
-       !$omp end critical
     end do
     !$omp end parallel do
 
-    !! Edge correction of transit end index
-    if(in2(jf) > nb) in2(jf) = in2(jf)-nb     
-
-    deallocate(bflux,bweights)
+    deallocate(bflux,bwght)
 
   end subroutine eebls
 end module bls
