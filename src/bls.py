@@ -50,8 +50,7 @@ class BLS(object):
         self.result = BLSResult(*bls.eebls(self.time, self.flux, self.error, self.freqs,
                                           self.nbin, self.qmin, self.qmax, self.pmul))
         self.result._p = self.period
-        if self.result.in2 < self.result.in1:
-            self.result.in2 += self.nbin
+        self.result.in2[self.result.in2 < self.result.in1] += self.nbin
         return self.result
         
 
@@ -64,86 +63,89 @@ class BLS(object):
         return 1./self.frequency
 
     @property
-    def sde(self):
-        if self.result:
-            return self.result.sde
-        else:
-            return np.zeros(self.nf)
-
-    @property
     def phase(self):
         """Return the time folded and normalised using the best identified period"""
-        return fold(self.time, self.result.bper, self.tc, 0.5) - 0.5
+        return fold(self.time, self.bper, self.tc, 0.5) - 0.5
 
     @property
     def t1(self):
         """Returns the start-of-transit epoch"""
-        return self.result.in1/self.nbin*self.result.bper + self.time[0]
+        return self.in1/self.nbin*self.bper + self.time[0]
 
     @property
     def t2(self):
         """Returns the end-of-transit epoch"""
-        return self.result.in2/self.nbin*self.result.bper + self.time[0]
+        return self.in2/self.nbin*self.bper + self.time[0]
 
     @property
     def tc(self):
         """Returns the mid-transit epoch"""
-        return 0.5*(self.result.in1+self.result.in2)/self.nbin*self.result.bper + self.time[0]
+        return 0.5*(self.in1+self.in2)/self.nbin*self.bper + self.time[0]
     
     @property
     def p1(self):
         """Returns the start-of-transit phase"""
-        return fold(self.t1, self.result.bper, self.tc, 0.5) - 0.5
+        return fold(self.t1, self.bper, self.tc, 0.5) - 0.5
 
     @property
     def p2(self):
         """Returns the end-of-transit phase"""
-        return fold(self.t2, self.result.bper, self.tc, 0.5) - 0.5
+        return fold(self.t2, self.bper, self.tc, 0.5) - 0.5
 
     @property
     def duration(self):
         """Returns the approximate transit duration"""
         return self.t2 - self.t1
 
-
-class BLSResult(object):
-    def __init__(self, p, bper, bpow, depth, qtran, in1, in2, pmean='running_median'):
-        self.pmean = pmean
-        self.p = p 
-        self.bpow = bpow
-        self.bsde = self.sde.max()
-        self._depth = depth
-        self._qtran = qtran
-        self._in1 = in1
-        self._in2 = in2
-
-    def __str__(self):
-        return 'Power {pw:8.6f}   sde {sde:6.3f}   Period {pr:6.3f}   Freq {fr:6.3f}   Depth {df:6.3f}   qtran {qt:5.3f}'.format(pr=self.bper, sde=self.bsde, fr=1/self.bper, pw=self.bpow, df=self.depth, qt=self.qtran)
-
     @property
     def sde(self):
+        p = self.result.power
         if self.pmean == 'mean':
-            return (self.p - self.p.mean()) / self.p.std()
+            return (p - p.mean()) / p.std()
         elif self.pmean == 'running_median':
-            power = self.p - MF(self.p, 200)
-            return power / power.std()
+            p = p - MF(p, 200)
+            return p / p.std()
         
+    @property
+    def bsde(self):
+        return self.sde.max()
+
     @property
     def bper(self):
         i = np.argmax(self.sde)
-        return self._p[i]
+        return self.period[i]
 
     @property
     def depth(self):
         i = np.argmax(self.sde)
-        return self._depth[i]
+        return self.result.depth[i]
 
     @property
     def in1(self):
         i = np.argmax(self.sde)
-        return self._in1[i]
+        return self.result.in1[i]
 
     @property
     def in2(self):
         i = np.argmax(self.sde)
-        return self._in2[i]
+        return self.result.in2[i]
+
+    @property
+    def depth(self):
+        i = np.argmax(self.sde)
+        return self.result.depth[i]
+
+
+    def __str__(self):
+        return 'Power {pw:8.6f}   sde {sde:6.3f}   Period {pr:6.3f}   Freq {fr:6.3f}   Depth {df:6.3f}   qtran {qt:5.3f}'.format(pr=self.bper, sde=self.bsde, fr=1/self.bper, pw=self.bpow, df=self.depth, qt=self.qtran)
+
+
+class BLSResult(object):
+    def __init__(self, p, bper, bpow, depth, qtran, in1, in2):
+        self.power = p 
+        self.depth = depth
+        self.qtran = qtran
+        self.in1 = in1
+        self.in2 = in2
+
+

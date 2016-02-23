@@ -185,14 +185,14 @@ class TransitSearch(object):
     def run_bls(self):
         b = self.bls
         r = self.bls()
-        self._rbls = array((r.bsde, b.tc, r.bper, b.t2-b.t1, r.depth, sqrt(r.depth),
-                            floor(diff(self.time[[0,-1]])[0]/r.bper)), dt_blsresult)
-        self._pv_bls = [r.bper, b.tc, sqrt(r.depth), 5, 0.1]
+        self._rbls = array((b.bsde, b.tc, b.bper, b.duration, b.depth, sqrt(b.depth),
+                            floor(diff(self.time[[0,-1]])[0]/b.bper)), dt_blsresult)
+        self._pv_bls = [b.bper, b.tc, sqrt(b.depth), 5, 0.1]
         self.create_transit_arrays()
         self.lcinfo['lnlike_constant'] = ll_normal_es(self.flux, ones_like(self.flux), self.flux_e)
-        self.period = r.bper
+        self.period = b.bper
         self.zero_epoch = b.tc
-        self.duration = b.t2-b.t1
+        self.duration = b.duration
 
     
     def fit_transit(self):
@@ -445,7 +445,7 @@ class TransitSearch(object):
     @bplot
     def plot_sde(self, ax=None):
         r = rarr(self.result)
-        ax.plot(self.bls.period, self.bls.result.sde, drawstyle='steps-mid')
+        ax.plot(self.bls.period, self.bls.sde, drawstyle='steps-mid')
         ax.axvline(r.bls_period, alpha=0.25, ls='--', lw=1)
         setp(ax,xlim=self.bls.period[[-1,0]], xlabel='Period [d]', ylabel='SDE', ylim=(-3,11))
         [ax.axhline(i, c='k', ls='--', alpha=0.5) for i in [0,5,10]]
