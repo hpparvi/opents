@@ -305,7 +305,7 @@ class TransitSearch(object):
     def plot_lc(self, ax=None, nbin=None):
         nbin = nbin or self.nbin        
         r = rarr(self.result)
-        period, t0, trdur = r.trf_period, r.trf_zero_epoch, r.trf_duration
+        period, t0, trdur = self._rbls['bls_period'], self._rbls['bls_zero_epoch'], self._rbls['bls_duration'] #r.trf_period, r.trf_zero_epoch, r.trf_duration
         phase = period*(fold(self.time, period, t0, shift=0.5) - 0.5)
 
         bp,bfo,beo = uf.bin(phase, self.flux, nbin)
