@@ -161,7 +161,7 @@ if __name__ == '__main__':
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
                 fig.tight_layout()
-                fig.savefig(join(args.plot_dir,'epic_{:9d}.pdf'.format(ts.epic)))
+                fig.savefig(join(args.plot_dir,'epic_{:9d}.png'.format(ts.epic)))
 
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
 
