@@ -163,6 +163,7 @@ if __name__ == '__main__':
                 ax_lcfold.set_title('Folded light curve')
                 fig.tight_layout()
                 # fig.savefig(join(args.plot_dir,'epic_{:9d}.'.format(ts.epic)))
+                print 'Saving to %sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format)
                 fig.savefig('%sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format))
 
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
