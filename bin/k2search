@@ -20,7 +20,7 @@ from time import sleep, time
 from glob import glob
 from copy import copy
 
-from numpy import arange, zeros
+from numpy import arange, zeros, fromstring
 from numpy.random import uniform
 from mpi4py import MPI
 
