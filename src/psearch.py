@@ -96,7 +96,7 @@ class TransitSearch(object):
         if bad_epochs is not None:
             newm = np.copy(m)
             for bad_epoch in bad_epochs:
-                newm *= (np.abs(self.time-bad_epoch)>0.5)
+                newm *= (np.abs(self.time-bad_epoch)>0.3)
             m = newm
             self.time = d.time[m]
 
