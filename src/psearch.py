@@ -80,7 +80,7 @@ class TransitSearch(object):
          - fits a sine curve to the data to test for variability
     """
 
-    def __init__(self, infile, inject=False, **kwargs):        
+    def __init__(self, infile, inject=False, bad_epochs=None, **kwargs):        
         self.d = d = pf.getdata(infile,1)
         m = (d.quality == 0) & (~(d.mflags_1 & 2**3).astype(np.bool)) & isfinite(d.flux_1)
 
@@ -92,6 +92,14 @@ class TransitSearch(object):
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
+
+        if bad_epochs is not None:
+            newm = np.copy(m)
+            for bad_epoch in bad_epochs:
+                newm *= (np.abs(self.time-bad_epoch)<0.5)
+            m = newm
+            self.time = d.time[m]
+            
         self.flux   = (d.flux_1[m] 
                        - d.trend_t_1[m] + nanmedian(d.trend_t_1[m]) 
                        - d.trend_p_1[m] + nanmedian(d.trend_p_1[m]))

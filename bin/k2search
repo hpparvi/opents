@@ -54,6 +54,8 @@ if __name__ == '__main__':
     ap.add_argument('--plot-format',default='pdf',type=str)
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
+    ap.add_argument('--bad_epochs', default=None, type=lambda s:fromstring(s.strip('[]'), sep=','), 
+        help='List of time values for bad epochs')
     args = ap.parse_args()
 
     root = 0
@@ -142,7 +144,7 @@ if __name__ == '__main__':
             fname = comm.recv(source=root, tag=0)
             if fname == -1:
                 break
-            ts = TransitSearch(fname)
+            ts = TransitSearch(fname,bad_epochs=args.bad_epochs)
             ts()
 
             if args.do_plots:
