@@ -51,6 +51,7 @@ if __name__ == '__main__':
     ap.add_argument('--save-dir', default='.', type=str)
     ap.add_argument('--plot-dir', default='.', type=str)
     ap.add_argument('--do-plots', action='store_true', default=False)
+    ap.add_argument('--plot-format',default='pdf',type=str)
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
     args = ap.parse_args()
@@ -161,7 +162,9 @@ if __name__ == '__main__':
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
                 fig.tight_layout()
-                fig.savefig(join(args.plot_dir,'epic_{:9d}.pdf'.format(ts.epic)))
+                # fig.savefig(join(args.plot_dir,'epic_{:9d}.'.format(ts.epic)))
+                print 'Saving to %sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format)
+                fig.savefig('%sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format))
 
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
 
