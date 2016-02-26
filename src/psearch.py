@@ -12,6 +12,7 @@ from functools import wraps
 from glob import glob
 from copy import copy
 from os.path import join, basename, abspath
+from collections import namedtuple
 from scipy.ndimage import binary_dilation, binary_erosion
 from scipy.stats import scoreatpercentile
 
@@ -44,6 +45,11 @@ from bls import BLS
 def nanmedian(s):
     m = np.isfinite(s)
     return np.median(s[m])
+
+from scipy.constants import G
+from exotk.utils.orbits import d_s
+def rho_from_pas(period,a):
+    return 1e-3*(3*pi)/G * a**3 * (period*d_s)**-2
 
 ## Array type definitions
 ## ----------------------
@@ -133,6 +139,7 @@ class TransitSearch(object):
         self._rpol = None
         self._recl = None
 
+        ## Transit fit pv [k u t0 p a i]
         self._pv_bls = None
         self._pv_trf = None
         
@@ -187,7 +194,7 @@ class TransitSearch(object):
         r = self.bls()
         self._rbls = array((b.bsde, b.tc, b.bper, b.duration, b.depth, sqrt(b.depth),
                             floor(diff(self.time[[0,-1]])[0]/b.bper)), dt_blsresult)
-        self._pv_bls = [b.bper, b.tc, sqrt(b.depth), 5, 0.1]
+        self._pv_bls = [b.bper, b.tc, sqrt(b.depth), as_from_rhop(2.5, b.bper), 0.1]
         self.create_transit_arrays()
         self.lcinfo['lnlike_constant'] = ll_normal_es(self.flux, ones_like(self.flux), self.flux_e)
         self.period = b.bper
@@ -197,9 +204,10 @@ class TransitSearch(object):
     
     def fit_transit(self):
         def minfun(pv):
-            if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1) or not (0.75<pv[0]<80): return inf
+            if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1) or not (0.75<pv[0]<80) or abs(pv[0]-pbls) > 1.: return inf
             return -ll_normal_es(self.flux, self.transit_model(pv), self.flux_e)
         
+        pbls = self._pv_bls[0]
         mr = minimize(minfun, self._pv_bls, method='powell')
         lnlike, x = -mr.fun, mr.x
         self._rtrf = array((lnlike, x[1], x[0], of.duration_circular(x[0],x[3],mt.acos(x[4]/x[3])),
@@ -358,9 +366,10 @@ class TransitSearch(object):
             phase = 24*(fold(time, self.period, self.zero_epoch, 0.5, normalize=False) - 0.5*self.period)
             sids  = argsort(phase)
             phase, flux = phase[sids], flux[sids]
-            pmask = abs(phase) < twodur
+            pmask = abs(phase) < 2.5*twodur
             if any(pmask):
-                ax.plot(phase[pmask], flux[pmask]+i*offset)
+                ax.plot(phase[pmask], flux[pmask]+i*offset, marker='o')
+
         setp(ax, xlim=(-twodur,twodur), xlabel='Phase [h]', yticks=[])
 
 
@@ -458,6 +467,7 @@ class TransitSearch(object):
     def plot_info(self, ax):
         res  = rarr(self.result)
         t0,p,tdur,tdep,rrat = res.trf_zero_epoch[0], res.trf_period[0], res.trf_duration[0], res.trf_depth[0], 0
+        a = res.trf_semi_major_axis[0]
         ax.text(0.0,1.0, 'EPIC {:9d}'.format(self.epic), size=12, weight='bold', va='top', transform=ax.transAxes)
         ax.text(0.0,0.83, ('SDE\n'
                           'Kp\n'
@@ -466,9 +476,11 @@ class TransitSearch(object):
                           'Transit depth\n'
                           'Radius ratio\n'
                           'Transit duration [h]\n'
-                          'Impact parameter'), size=9, va='top')
+                          'Impact parameter\n'
+                          'Stellar density'), size=9, va='top')
         ax.text(0.97,0.83, ('{:9.3f}\n{:9.3f}\n{:9.3f}\n{:9.3f}\n{:9.5f}\n'
-                           '{:9.4f}\n{:9.3f}\n{:9.3f}').format(res.sde[0],self.Kp,t0,p,tdep,sqrt(tdep),24*tdur,res.trf_impact_parameter[0]),
+                           '{:9.4f}\n{:9.3f}\n{:9.3f}\n{:0.3f}').format(res.sde[0],self.Kp,t0,p,tdep,sqrt(tdep),24*tdur,
+                                                                        res.trf_impact_parameter[0], rho_from_pas(p,a)),
                 size=9, va='top', ha='right')
         sb.despine(ax=ax, left=True, bottom=True)
         setp(ax, xticks=[], yticks=[])
