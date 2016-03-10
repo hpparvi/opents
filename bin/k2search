@@ -30,6 +30,8 @@ from pybls import BLS
 from exotk.utils.misc_f import utilities as uf
 from exotk.utils.misc import fold
 from matplotlib import rc
+from matplotlib.gridspec import GridSpec
+from matplotlib.pyplot import figure, subplots, subplot
 from collections import OrderedDict
 
 from k2ps.psearch import *
@@ -39,14 +41,20 @@ sb.set_context('paper')
 rc('figure', figsize=(14,5), dpi=100)
 pd.set_option('precision', 3)
 
+AAOCW = 3.4645669
+AAPGW = 7.0866142
+
 if __name__ == '__main__':
     ap = ArgumentParser()
     ap.add_argument('run_name', type=str)
     ap.add_argument('--data-dir', default='.', type=str)
     ap.add_argument('--save-dir', default='.', type=str)
     ap.add_argument('--plot-dir', default='.', type=str)
+    ap.add_argument('--do-plots', action='store_true', default=False)
+    ap.add_argument('--plot-format',default='pdf',type=str)
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
+    ap.add_argument('--period-limits', type=str, default=None)
     args = ap.parse_args()
 
     root = 0
@@ -58,6 +66,10 @@ if __name__ == '__main__':
     if size < 2:
         print "Error, at least one worker node required.\nStart with mpirun -n N_WORKER_NODES+1 bls_search.py"
         sys.exit(1)
+
+    sargs = {}
+    if args.period_limits:
+        sargs['period_range'] = np.fromstring(args.period_limits, count=2, sep=',')
 
     ## File IO node
     ## ------------
@@ -73,23 +85,15 @@ if __name__ == '__main__':
         n_items = len(items)
         n_finished_items = 0
 
-        pklname = join(args.save_dir, args.run_name+'_bls.pkl')
         hdfname = join(args.save_dir, args.run_name+'_bls.h5')
 
         def save(results):
             if len(results) > 2:
-                with open(pklname, 'w') as fout:
-                    dump(results, fout)
                 hdf = pd.HDFStore(hdfname)
                 hdf['planet_search'] = pd.DataFrame(np.hstack(results.values()))
                 hdf.close()
 
-        if exists(pklname):
-            with (open(pklname, 'r')) as fin:
-                results = load(fin)
-        else:
-            results = OrderedDict()
-
+        results = OrderedDict()
         time_last_save = time()
         while items or active_workers:
             ## Send an item
@@ -120,11 +124,52 @@ if __name__ == '__main__':
     ## Worker node
     ## -----------
     else:
+        if args.do_plots:
+            PW,PH = 8.27, 11.69
+            rc('axes', labelsize=7, titlesize=8)
+            rc('font', size=6)
+            rc('xtick', labelsize=7)
+            rc('ytick', labelsize=7)
+            rc('lines', linewidth=1)
+            fig = pl.figure(figsize=(PW,PH))
+            gs = GridSpec(6,3)
+            ax_lctime = subplot(gs[0:2,:])
+            ax_lcfold = subplot(gs[4,1:])
+            ax_lnlike = subplot(gs[3,2])
+            ax_lcoe   = subplot(gs[2,1]),subplot(gs[2,2])
+            ax_sde    = subplot(gs[5,1:])
+            ax_transits = subplot(gs[3:,0])
+            ax_info = subplot(gs[2,0])
+            ax_ec = subplot(gs[3,1])
+            axes = [ax_lctime, ax_lcfold, ax_lnlike, ax_lcoe[0], ax_lcoe[1], ax_sde, ax_transits, ax_info, ax_ec]
+
         while True:
             fname = comm.recv(source=root, tag=0)
             if fname == -1:
                 break
-            ts = TransitSearch(fname)
+            ts = TransitSearch(fname, **sargs)
             ts()
+
+            if args.do_plots:
+                [a.clear() for a in axes]
+                ts.plot_eclipse(ax_ec)
+                ts.plot_lc_time(ax_lctime)
+                ts.plot_lc(ax_lcfold)
+                ts.plot_fit_and_eo(ax_lcoe)
+                ts.plot_info(ax_info)
+                ts.plot_lnlike(ax_lnlike)
+                ts.plot_sde(ax_sde)
+                ts.plot_transits(ax_transits)
+                ax_lnlike.set_title('Ln likelihood per orbit')
+                ax_transits.set_title('Individual transits')
+                ax_ec.set_title('Secondary eclipse')
+                ax_lcoe[0].set_title('Folded transit and model')
+                ax_lcoe[1].set_title('Even and odd transits')
+                ax_lcfold.set_title('Folded light curve')
+                fig.tight_layout()
+                # fig.savefig(join(args.plot_dir,'epic_{:9d}.'.format(ts.epic)))
+                print 'Saving to %sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format)
+                fig.savefig('%sepic_%9d.%s' % (args.plot_dir,ts.epic,args.plot_format))
+
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
 
