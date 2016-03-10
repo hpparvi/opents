@@ -92,26 +92,30 @@ contains
     integer, intent(out), dimension(nf) :: in1, in2
     real(8), intent(out), dimension(nf) :: p, depth, qtran
 
-    integer :: kmi, kma, i, j, k, jf, jn1, jn2
-    real(8) :: rn3, s, s3, pow, power, ww, minw
+    integer :: kmi, kma, kmaa, i, j, k, jf, jn1, jn2
+    real(8) :: rn3, s, s3, pow, power, ww, minw, rnb, per
     real(8), dimension(np) :: ntime, nflux, wght
 
     real(8), dimension(:), allocatable :: bflux, bwght
     
-    minw = 0.75d0 / real(nb,8)
-    kmi=max(1, int(qmi*real(nb, 8)))
-    kma=int(qma*real(nb, 8))+1
+    rnb = real(nb,8)
+    minw = 0.75d0 / rnb
+    kmi=max(1, int(qmi*rnb))
+    kmaa=int(qma*rnb)+1
     
-    allocate(bflux(nb+kma), bwght(nb+kma))
+    allocate(bflux(nb+kmaa), bwght(nb+kmaa))
 
     ntime = t - t(1)
     nflux = x - sum(x)/real(np, 8)
     wght  = e**(-2)/sum(e**(-2))
 
     !$omp parallel do default(none) &
-    !$omp private(i,j,k,s,bwght,ww,jf,bflux,pow,power,jn1,jn2,rn3,s3) &
-    !$omp shared(p,ntime,nflux,wght,np,nf,nb,pmul,freq,kma,kmi,qmi,minw,rn,in1,in2,qtran,depth)
+    !$omp private(i,j,k,s,bwght,ww,jf,bflux,pow,power,jn1,jn2,rn3,s3,kma,per) &
+    !$omp shared(p,ntime,nflux,wght,np,nf,nb,pmul,freq,rnb,kmaa,kmi,qmi,minw,rn,in1,in2,qtran,depth)
     do jf=1,nf
+       per = 1.0d0 / freq(jf)
+       kma = min(kmaa, int(rnb*(0.01d0 + 0.11d0 * exp(-0.14d0*per+0.2d0))) + 1)
+       !kma = kmaa
 
        !! Fold and bin the fluxes and weights
        !! -----------------------------------
