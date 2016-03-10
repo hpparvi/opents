@@ -54,6 +54,7 @@ if __name__ == '__main__':
     ap.add_argument('--plot-format',default='pdf',type=str)
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
+    ap.add_argument('--period-limits', type=str, default=None)
     args = ap.parse_args()
 
     root = 0
@@ -65,6 +66,10 @@ if __name__ == '__main__':
     if size < 2:
         print "Error, at least one worker node required.\nStart with mpirun -n N_WORKER_NODES+1 bls_search.py"
         sys.exit(1)
+
+    sargs = {}
+    if args.period_limits:
+        sargs['period_range'] = np.fromstring(args.period_limits, count=2, sep=',')
 
     ## File IO node
     ## ------------
@@ -142,7 +147,7 @@ if __name__ == '__main__':
             fname = comm.recv(source=root, tag=0)
             if fname == -1:
                 break
-            ts = TransitSearch(fname)
+            ts = TransitSearch(fname, **sargs)
             ts()
 
             if args.do_plots:

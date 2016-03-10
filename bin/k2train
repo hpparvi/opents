@@ -30,11 +30,12 @@ rc('figure', figsize=(14,5), dpi=100)
 pd.set_option('precision', 3)
 
 class Teacher(object):
-    def __init__(self, files, savefile, start_index=0, pmode='h'):
+    def __init__(self, files, savefile, start_index=0, pmode='h', sargs={}):
         self.files = files
         self.savefile = savefile
         self.fid = start_index
         self.epics = array(map(lambda fn:int(basename(fn).split('_')[1]), self.files))	
+        self.sargs = sargs
 
         if exists(savefile):
             with open(savefile, 'r') as f:
@@ -71,7 +72,7 @@ class Teacher(object):
     def compute(self, fid):
         self.fid = fid
         self.epic = self.epics[fid]
-        self.ts = TransitSearch(self.files[fid])
+        self.ts = TransitSearch(self.files[fid], **self.sargs)
         self.ts()
         [a.cla() for a in self.axes]
         self.ts.plot_lc_time(self.ax_lctime)
@@ -117,6 +118,7 @@ if __name__ == '__main__':
     ap.add_argument('--start-index', type=int, default=0)
     ap.add_argument('--mode', type=str, default='h')
     ap.add_argument('--epic', type=int, default=None)
+    ap.add_argument('--period-limits', type=str, default=None)
     args = ap.parse_args()
 
     data_dir = args.data_dir or '../../../../../analysis/k2_05/injection_tests/data/reduced/'
@@ -126,5 +128,9 @@ if __name__ == '__main__':
 
     start_index = args.start_index if not args.epic else epics.index(args.epic)
     
-    teacher = Teacher(files, args.savefile, start_index, args.mode)
+    sargs = {}
+    if args.period_limits:
+        sargs['period_range'] = np.fromstring(args.period_limits, count=2, sep=',')
+
+    teacher = Teacher(files, args.savefile, start_index, args.mode, sargs=sargs)
     show()
