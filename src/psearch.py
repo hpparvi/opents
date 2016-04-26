@@ -24,7 +24,6 @@ from exotk.utils.likelihood import ll_normal_es
 from scipy.optimize import minimize
 
 from mpi4py import MPI
-from pytransit import MandelAgol as MA
 from pytransit.orbits_f import orbits as of
 from exotk.utils.orbits import as_from_rhop, i_from_baew
 from exotk.utils.misc_f import utilities as uf
