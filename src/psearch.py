@@ -88,7 +88,7 @@ class TransitSearch(object):
     def __init__(self, infile, inject=False, **kwargs):        
         self.d = d = pf.getdata(infile,1)
         m = (d.quality == 0) & (~(d.mflags_1 & 2**3).astype(np.bool)) & isfinite(d.flux_1)
-        m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
+        # m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
 
         self.Kp = pf.getval(infile,'kepmag')
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
