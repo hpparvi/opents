@@ -47,6 +47,7 @@ def nanmedian(s):
 
 from scipy.constants import G
 from exotk.utils.orbits import d_s
+
 def rho_from_pas(period,a):
     return 1e-3*(3*pi)/G * a**3 * (period*d_s)**-2
 
