@@ -390,7 +390,7 @@ class TransitSearch(object):
         if duration >= (0.25/24.):
             hdur = 24*duration*array([-0.5,0.5])
         else:
-            hdur = 24*array([-1.,1.])
+            hdur = 24*array([-0.25,0.25])
 
         flux_m = self.transit_model(self._pv_trf)
         phase = 24*(fold(self.time, period, zero_epoch, 0.5, normalize=False) - 0.5*period)
@@ -421,7 +421,7 @@ class TransitSearch(object):
         if duration >= (0.25/24.):
             hdur = 24*duration*array([-0.5,0.5])
         else:
-            hdur = 24*array([-1.,1.])
+            hdur = 24*array([-0.25,0.25])
 
         self.plot_transit_fit(ax[0])
 
