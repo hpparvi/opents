@@ -424,7 +424,7 @@ class TransitSearch(object):
             hdur = 24*duration*array([-0.5,0.5])
         else:
             hdur = 24*array([-0.25,0.25])
-            duration = 0.25
+            duration = 0.5
 
         self.plot_transit_fit(ax[0])
 
