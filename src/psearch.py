@@ -343,7 +343,7 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        if duration >= 0.1:
+        if duration >= (0.25/24.):
             hdur = array([-0.5,0.5]) * duration
         else:
             hdur = array([-0.25,0.25])
@@ -387,7 +387,10 @@ class TransitSearch(object):
     def plot_transit_fit(self, ax=None):
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.5,-0.5])
 
         flux_m = self.transit_model(self._pv_trf)
         phase = 24*(fold(self.time, period, zero_epoch, 0.5, normalize=False) - 0.5*period)
@@ -415,7 +418,10 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.5,-0.5])
 
         self.plot_transit_fit(ax[0])
 
