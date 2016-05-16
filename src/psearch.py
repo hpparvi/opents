@@ -90,6 +90,10 @@ class TransitSearch(object):
         self.d = d = pf.getdata(infile,1)
         m = (d.quality == 0) & (~(d.mflags_1 & 2**3).astype(np.bool)) & isfinite(d.flux_1)
         # m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
+        self.badcads = kwargs.get('bad_cads',np.array([]))
+
+        for cad in badcads:
+            m[self.cadence==cad] = 0
 
         self.Kp = pf.getval(infile,'kepmag')
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
@@ -109,12 +113,14 @@ class TransitSearch(object):
         self.flux_r  = d.flux_1[m] / self.mflux
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
+        self.cadence = d.cadence
 
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
         self.nbin = kwargs.get('nbin',900)
         self.qmin = kwargs.get('qmin',0.002)
         self.qmax = kwargs.get('qmax',0.115)
         self.nf   = kwargs.get('nfreq',10000)
+
         
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf, pmean='running_median')

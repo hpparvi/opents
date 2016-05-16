@@ -55,6 +55,7 @@ if __name__ == '__main__':
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
     ap.add_argument('--period-limits', type=str, default=None)
+    ap.add_argument('--bad-cads',type=str,default=None)
     args = ap.parse_args()
 
     root = 0
@@ -70,6 +71,10 @@ if __name__ == '__main__':
     sargs = {}
     if args.period_limits:
         sargs['period_range'] = np.fromstring(args.period_limits, count=2, sep=',')
+
+    if args.bad_cads:
+        sargs['bad_cads'] = np.fromstring(args.bad_cads, sep=',')
+
 
     ## File IO node
     ## ------------
