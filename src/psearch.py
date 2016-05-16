@@ -92,7 +92,7 @@ class TransitSearch(object):
         # m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
         self.badcads = kwargs.get('bad_cads',np.array([]))
 
-        for cad in badcads:
+        for cad in self.badcads:
             m[self.cadence==cad] = 0
 
         self.Kp = pf.getval(infile,'kepmag')
