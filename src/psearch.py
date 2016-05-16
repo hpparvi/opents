@@ -91,6 +91,7 @@ class TransitSearch(object):
         m = (d.quality == 0) & (~(d.mflags_1 & 2**3).astype(np.bool)) & isfinite(d.flux_1)
         # m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
         self.badcads = kwargs.get('bad_cads',np.array([]))
+        self.cadence = d.cadence
 
         for cad in self.badcads:
             m[self.cadence==cad] = 0
@@ -113,7 +114,6 @@ class TransitSearch(object):
         self.flux_r  = d.flux_1[m] / self.mflux
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
-        self.cadence = d.cadence
 
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
         self.nbin = kwargs.get('nbin',900)
