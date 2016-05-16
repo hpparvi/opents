@@ -401,7 +401,9 @@ class TransitSearch(object):
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)
         [ax.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
-        setp(ax, xlim=3*hdur, ylim=[flux_o.min(),flux_o.max()] xlabel='Phase [h]', ylabel='Normalised flux')
+        fluxrange =flux_o.max()-flux_o.min()
+        setp(ax, xlim=3*hdur, ylim=[flux_o.min()-0.05*fluxrange,flux_o.max()+0.05*fluxrange],
+         xlabel='Phase [h]', ylabel='Normalised flux')
         setp(ax.get_yticklabels(), visible=False)
 
 
