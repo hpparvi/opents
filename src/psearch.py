@@ -343,7 +343,10 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = array([-0.5,0.5]) * duration
+        if duration >= 0.1:
+            hdur = array([-0.5,0.5]) * duration
+        else:
+            hdur = array([-0.25,0.25])
 
         for time,flux_o in ((self.time_even,self.flux_even),
                             (self.time_odd,self.flux_odd)):
