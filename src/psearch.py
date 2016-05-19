@@ -313,7 +313,7 @@ class TransitSearch(object):
         ax.plot(self.time, self.trend_p, lw=1)
         # ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
-        setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
+        setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
 
 
     @bplot
