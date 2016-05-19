@@ -138,9 +138,9 @@ if __name__ == '__main__':
             rc('lines', linewidth=1)
             fig = pl.figure(figsize=(PW,PH))
             gs1 = GridSpec(3,3)
-            gs1.update(top=0.95, bottom = 2/3.*1.03,hspace=0.05)
+            gs1.update(top=0.98, bottom = 2/3.*1.05,hspace=0.07,left=0.05,right=0.95)
             gs = GridSpec(4,3)
-            gs.update(top=2/3.*0.98,bottom=0.05,hspace=0.25)
+            gs.update(top=2/3.*0.96,bottom=0.03,hspace=0.3,left=0.05,right=0.95)
 
             ax_lcpos = subplot(gs1[0,:])
             ax_lctime = subplot(gs1[1,:],sharex=ax_lcpos)
