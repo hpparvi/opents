@@ -325,7 +325,6 @@ class TransitSearch(object):
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
 
-
     @bplot
     def plot_lc(self, ax=None, nbin=None):
         nbin = nbin or self.nbin        
