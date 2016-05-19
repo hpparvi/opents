@@ -162,9 +162,11 @@ if __name__ == '__main__':
                 if plot_dir == '.':
                     plot_dir = './'
                 [a.clear() for a in axes]
-                ts.plot_eclipse(ax_ec)
+                gs.update(hspace=0)
                 ts.plot_lc_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
+                gs.update(hspace=0.1)
+                ts.plot_eclipse(ax_ec)
                 ts.plot_lc(ax_lcfold)
                 ts.plot_fit_and_eo(ax_lcoe)
                 ts.plot_info(ax_info)
