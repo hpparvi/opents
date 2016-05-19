@@ -94,6 +94,7 @@ class TransitSearch(object):
         self.cadence = d.cadence
 
         for cad in self.badcads:
+            print cad,np.where(self.cadence==cad)
             m[self.cadence==cad] = 0
 
         self.Kp = pf.getval(infile,'kepmag')
