@@ -143,10 +143,10 @@ if __name__ == '__main__':
             gs.update(top=2/3.*0.95,bottom=0.05)
 
             ax_lcpos = subplot(gs1[0,:])
-            ax_lctime = subplot(gs1[1,:],sharex=ax_lcpos)
+            ax_lctime = subplot(gs1[1,:])
             ax_lcfold = subplot(gs[2,1:])
             ax_lnlike = subplot(gs[1,2])
-            ax_lcoe   = subplot(gs[0,1]),subplot(gs[2,2])
+            ax_lcoe   = subplot(gs[0,1]),subplot(gs[0,2])
             ax_sde    = subplot(gs[3,1:])
             ax_transits = subplot(gs[1:,0])
             ax_info = subplot(gs[0,0])
