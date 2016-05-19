@@ -165,7 +165,7 @@ if __name__ == '__main__':
                 gs.update(hspace=0)
                 ts.plot_lc_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
-                gs.update(hspace=0.1)
+                # gs.update(hspace=0.1)
                 ts.plot_eclipse(ax_ec)
                 ts.plot_lc(ax_lcfold)
                 ts.plot_fit_and_eo(ax_lcoe)
