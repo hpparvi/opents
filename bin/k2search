@@ -138,7 +138,9 @@ if __name__ == '__main__':
             rc('lines', linewidth=1)
             fig = pl.figure(figsize=(PW,PH))
             gs = GridSpec(6,3)
-            ax_lctime = subplot(gs[0:2,:])
+
+            ax_lcpos = subplot(gs[0,:])
+            ax_lctime = subplot(gs[1,:])
             ax_lcfold = subplot(gs[4,1:])
             ax_lnlike = subplot(gs[3,2])
             ax_lcoe   = subplot(gs[2,1]),subplot(gs[2,2])
@@ -161,6 +163,7 @@ if __name__ == '__main__':
                     plot_dir = './'
                 [a.clear() for a in axes]
                 ts.plot_eclipse(ax_ec)
+                ts.plot_ls_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
                 ts.plot_lc(ax_lcfold)
                 ts.plot_fit_and_eo(ax_lcoe)
