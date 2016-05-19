@@ -144,13 +144,13 @@ if __name__ == '__main__':
 
             ax_lcpos = subplot(gs1[0,:])
             ax_lctime = subplot(gs1[1,:],sharex=ax_lcpos)
-            ax_lcfold = subplot(gs[4,1:])
-            ax_lnlike = subplot(gs[3,2])
-            ax_lcoe   = subplot(gs[2,1]),subplot(gs[2,2])
-            ax_sde    = subplot(gs[5,1:])
-            ax_transits = subplot(gs[3:,0])
-            ax_info = subplot(gs[2,0])
-            ax_ec = subplot(gs[3,1])
+            ax_lcfold = subplot(gs[2,1:])
+            ax_lnlike = subplot(gs[1,2])
+            ax_lcoe   = subplot(gs[0,1]),subplot(gs[2,2])
+            ax_sde    = subplot(gs[3,1:])
+            ax_transits = subplot(gs[1:,0])
+            ax_info = subplot(gs[0,0])
+            ax_ec = subplot(gs[1,1])
             axes = [ax_lctime, ax_lcfold, ax_lnlike, ax_lcoe[0], ax_lcoe[1], ax_sde, ax_transits, ax_info, ax_ec]
 
         while True:
