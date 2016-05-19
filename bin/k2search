@@ -163,7 +163,7 @@ if __name__ == '__main__':
                     plot_dir = './'
                 [a.clear() for a in axes]
                 # gs.update(hspace=0.05)
-                # ts.plot_lc_pos(ax_lcpos)
+                ts.plot_lc_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
                 # gs.update(hspace=0.25)
                 ts.plot_eclipse(ax_ec)
