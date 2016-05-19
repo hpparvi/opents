@@ -309,8 +309,9 @@ class TransitSearch(object):
     @bplot
     def plot_lc_pos(self, ax=None):
         ax.plot(self.time, self.flux_r-self.trend_t+np.nanmedian(self.trend_t), '.')
+        ax.plot([],[])
         # ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.trend_p, lw=0.5)
+        ax.plot(self.time, self.trend_p, lw=1)
         # ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
@@ -321,7 +322,8 @@ class TransitSearch(object):
         # ax.plot(self.time, self.flux_r, lw=1)
         # ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
         ax.plot(self.time, self.flux_r-self.trend_p+np.nanmedian(self.trend_p), '.')
-        ax.plot(self.time, self.trend_t, lw=0.5)
+        ax.plot([],[])
+        ax.plot(self.time, self.trend_t, lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
 
