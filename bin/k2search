@@ -38,7 +38,7 @@ from k2ps.psearch import *
 
 sb.set_style('white')
 sb.set_context('paper')
-rc('figure', figsize=(14,5), dpi=100)
+rc('figure', figsize=(14,5), dpi=160)
 pd.set_option('precision', 3)
 
 AAOCW = 3.4645669
