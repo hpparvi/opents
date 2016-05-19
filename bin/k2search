@@ -138,7 +138,7 @@ if __name__ == '__main__':
             rc('lines', linewidth=1)
             fig = pl.figure(figsize=(PW,PH))
             gs1 = GridSpec(2,3)
-            gs1.update(top=0.99*PH, bottom = 2*PH/3.,hspace=0.05)
+            gs1.update(top=0.99*PH, bottom = 2*PH/3.,hspace=0.2)
             gs = GridSpec(4,3)
             gs.update(top=2*PH/3.*0.98,bottom=0.1)
 
@@ -165,10 +165,8 @@ if __name__ == '__main__':
                 if plot_dir == '.':
                     plot_dir = './'
                 [a.clear() for a in axes]
-                # gs.update(hspace=0.05)
                 ts.plot_lc_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
-                # gs.update(hspace=0.25)
                 ts.plot_eclipse(ax_ec)
                 ts.plot_lc(ax_lcfold)
                 ts.plot_fit_and_eo(ax_lcoe)
