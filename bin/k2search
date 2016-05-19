@@ -140,7 +140,7 @@ if __name__ == '__main__':
             gs1 = GridSpec(2,3)
             gs1.update(top=0.05, bottom = 2/3.*0.95)
             gs = GridSpec(4,3)
-            gs.update(top=2/3.1.05,bottom=0.95)
+            gs.update(top=2/3.*1.05,bottom=0.95)
 
             ax_lcpos = subplot(gs1[0,:])
             ax_lctime = subplot(gs1[1,:])
