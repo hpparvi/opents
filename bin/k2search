@@ -152,7 +152,7 @@ if __name__ == '__main__':
             ax_transits = subplot(gs[1:,0])
             ax_info = subplot(gs[0,0])
             ax_ec = subplot(gs[1,1])
-            axes = [ax_lctime, ax_lcfold, ax_lnlike, ax_lcoe[0], ax_lcoe[1], ax_sde, ax_transits, ax_info, ax_ec]
+            axes = [ax_lctime,ax_lcpos,ax_lcwhite, ax_lcfold, ax_lnlike, ax_lcoe[0], ax_lcoe[1], ax_sde, ax_transits, ax_info, ax_ec]
 
         while True:
             fname = comm.recv(source=root, tag=0)
