@@ -140,7 +140,7 @@ if __name__ == '__main__':
             gs = GridSpec(6,3)
 
             ax_lcpos = subplot(gs[0,:])
-            ax_lctime = subplot(gs[0:1,:],sharex=ax_lcpos)
+            ax_lctime = subplot(gs[1,:],sharex=ax_lcpos)
             ax_lcfold = subplot(gs[4,1:])
             ax_lnlike = subplot(gs[3,2])
             ax_lcoe   = subplot(gs[2,1]),subplot(gs[2,2])
