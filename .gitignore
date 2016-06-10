@@ -1,0 +1,4 @@
+build
+notebooks/.ipynb_checkpoints/
+*.pyc
+*~
