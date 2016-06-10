@@ -8,28 +8,24 @@ import pyfits as pf
 import matplotlib.pyplot as plt
 from functools import wraps
 
-from glob import glob
-from copy import copy
-from os.path import join, basename, abspath
+from os.path import basename
 from collections import namedtuple
-from scipy.ndimage import binary_dilation, binary_erosion
+from scipy.ndimage import binary_dilation
 from scipy.stats import scoreatpercentile
 
 from pyfits.card import Undefined
 from pytransit import MandelAgol as MA
 from pytransit import Gimenez as GM
-import scipy.optimize as so 
 from exotk.utils.likelihood import ll_normal_es
 from scipy.optimize import minimize
 
-from mpi4py import MPI
 from pytransit.orbits_f import orbits as of
 from exotk.utils.orbits import as_from_rhop, i_from_baew
 from exotk.utils.misc_f import utilities as uf
 from exotk.utils.misc import fold
 
 from numpy.core.records import array as rarr
-from numpy.lib.recfunctions import stack_arrays, merge_arrays
+from numpy.lib.recfunctions import merge_arrays
 
 from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, abs,
                    sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
@@ -41,8 +37,7 @@ from matplotlib.pyplot import setp, subplots
 from bls import BLS
 
 def nanmedian(s):
-    m = np.isfinite(s)
-    return np.median(s[m])
+    return np.median(s[np.isfinite(s)])
 
 from scipy.constants import G
 from exotk.utils.orbits import d_s
@@ -87,8 +82,7 @@ class TransitSearch(object):
 
     def __init__(self, infile, inject=False, **kwargs):        
         self.d = d = pf.getdata(infile,1)
-        #m = (d.quality == 0) & (~(d.mflags_1 & 2**3).astype(np.bool)) & isfinite(d.flux_1)
-        m = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
+        m  = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
         self.Kp = pf.getval(infile,'kepmag')
