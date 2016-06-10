@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Script to carry out transit search sensitivity tests from detrended K2 light curves.
+"""Script to search for transit-like signals from k2sc-detrended K2 light curves.
 
 """
 from __future__ import division
@@ -13,36 +13,27 @@ import pandas as pd
 import seaborn as sb
 
 from os.path import join, abspath, basename, exists
+from collections import OrderedDict
 from argparse import ArgumentParser
-from datetime import datetime
-from cPickle import dump, load
 from time import sleep, time
 from glob import glob
 from copy import copy
 
-from numpy import arange, zeros
-from numpy.random import uniform
-from mpi4py import MPI
-
-from pytransit import MandelAgol as MA
-from exotk.utils.orbits import as_from_rhop
-from pybls import BLS
-from exotk.utils.misc_f import utilities as uf
-from exotk.utils.misc import fold
-from matplotlib import rc
 from matplotlib.gridspec import GridSpec
-from matplotlib.pyplot import figure, subplots, subplot
-from collections import OrderedDict
+from mpi4py import MPI
 
 from k2ps.psearch import *
 
 sb.set_style('white')
 sb.set_context('paper')
-rc('figure', figsize=(14,5), dpi=100)
-pd.set_option('precision', 3)
+mpl.rc('figure', figsize=(8.27, 11.69), dpi=100)
+mpl.rc('axes', labelsize=7, titlesize=8)
+mpl.rc('font', size=6)
+mpl.rc('xtick', labelsize=7)
+mpl.rc('ytick', labelsize=7)
+mpl.rc('lines', linewidth=1)
 
-AAOCW = 3.4645669
-AAPGW = 7.0866142
+pd.set_option('precision', 3)
 
 if __name__ == '__main__':
     ap = ArgumentParser()
@@ -51,7 +42,7 @@ if __name__ == '__main__':
     ap.add_argument('--save-dir', default='.', type=str)
     ap.add_argument('--plot-dir', default='.', type=str)
     ap.add_argument('--do-plots', action='store_true', default=False)
-    ap.add_argument('--plot-format',default='pdf',type=str)
+    ap.add_argument('--plot-format', type=str, default='pdf', choices=['pdf', 'png'], help='File format for plots')
     ap.add_argument('--start-i', default=0, type=int)
     ap.add_argument('--end-i', default=None, type=int)
     ap.add_argument('--period-limits', type=str, default=None)
@@ -125,22 +116,16 @@ if __name__ == '__main__':
     ## -----------
     else:
         if args.do_plots:
-            PW,PH = 8.27, 11.69
-            rc('axes', labelsize=7, titlesize=8)
-            rc('font', size=6)
-            rc('xtick', labelsize=7)
-            rc('ytick', labelsize=7)
-            rc('lines', linewidth=1)
-            fig = pl.figure(figsize=(PW,PH))
-            gs = GridSpec(6,3)
-            ax_lctime = subplot(gs[0:2,:])
-            ax_lcfold = subplot(gs[4,1:])
-            ax_lnlike = subplot(gs[3,2])
-            ax_lcoe   = subplot(gs[2,1]),subplot(gs[2,2])
-            ax_sde    = subplot(gs[5,1:])
-            ax_transits = subplot(gs[3:,0])
-            ax_info = subplot(gs[2,0])
-            ax_ec = subplot(gs[3,1])
+            fig = pl.figure()
+            gs  = GridSpec(6,3)
+            ax_lctime = pl.subplot(gs[0:2,:])
+            ax_lcfold = pl.subplot(gs[4,1:])
+            ax_lnlike = pl.subplot(gs[3,2])
+            ax_lcoe   = pl.subplot(gs[2,1]), subplot(gs[2,2])
+            ax_sde    = pl.subplot(gs[5,1:])
+            ax_transits = pl.subplot(gs[3:,0])
+            ax_info = pl.subplot(gs[2,0])
+            ax_ec = pl.subplot(gs[3,1])
             axes = [ax_lctime, ax_lcfold, ax_lnlike, ax_lcoe[0], ax_lcoe[1], ax_sde, ax_transits, ax_info, ax_ec]
 
         while True:
@@ -151,9 +136,6 @@ if __name__ == '__main__':
             ts()
 
             if args.do_plots:
-                plot_dir = args.plot_dir
-                if plot_dir == '.':
-                    plot_dir = './'
                 [a.clear() for a in axes]
                 ts.plot_eclipse(ax_ec)
                 ts.plot_lc_time(ax_lctime)
@@ -170,9 +152,7 @@ if __name__ == '__main__':
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
                 fig.tight_layout()
-                # fig.savefig(join(args.plot_dir,'epic_{:9d}.'.format(ts.epic)))
-                print 'Saving to %sepic_%9d.%s' % (plot_dir,ts.epic,args.plot_format)
-                fig.savefig('%sepic_%9d.%s' % (plot_dir,ts.epic,args.plot_format))
+                fig.savefig(join(args.plot_dir,'epic_{:9d}.{:s}'.format(ts.epic, args.plot_format))
 
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
 

@@ -6,7 +6,6 @@ import pandas as pd
 import seaborn as sb
 import pyfits as pf
 import matplotlib.pyplot as plt
-from IPython.display import clear_output
 from functools import wraps
 
 from glob import glob
