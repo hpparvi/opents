@@ -121,7 +121,7 @@ if __name__ == '__main__':
             ax_lctime = pl.subplot(gs[0:2,:])
             ax_lcfold = pl.subplot(gs[4,1:])
             ax_lnlike = pl.subplot(gs[3,2])
-            ax_lcoe   = pl.subplot(gs[2,1]), subplot(gs[2,2])
+            ax_lcoe   = pl.subplot(gs[2,1]), pl.subplot(gs[2,2])
             ax_sde    = pl.subplot(gs[5,1:])
             ax_transits = pl.subplot(gs[3:,0])
             ax_info = pl.subplot(gs[2,0])
@@ -152,7 +152,7 @@ if __name__ == '__main__':
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
                 fig.tight_layout()
-                fig.savefig(join(args.plot_dir,'epic_{:9d}.{:s}'.format(ts.epic, args.plot_format))
+                fig.savefig(join(args.plot_dir,'epic_{:9d}.{:s}'.format(ts.epic, args.plot_format)))
 
-            comm.send((ts.epic, ts.result), dest=root, tag=2)    
-
+            comm.send((ts.epic, ts.result), dest=root, tag=2)
+            
