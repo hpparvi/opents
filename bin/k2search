@@ -121,7 +121,7 @@ if __name__ == '__main__':
             ax_lctime = pl.subplot(gs[0:2,:])
             ax_lcfold = pl.subplot(gs[4,1:])
             ax_lnlike = pl.subplot(gs[3,2])
-            ax_lcoe   = pl.subplot(gs[2,1]), subplot(gs[2,2])
+            ax_lcoe   = pl.subplot(gs[2,1]), pl.subplot(gs[2,2])
             ax_sde    = pl.subplot(gs[5,1:])
             ax_transits = pl.subplot(gs[3:,0])
             ax_info = pl.subplot(gs[2,0])
