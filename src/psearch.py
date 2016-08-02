@@ -82,7 +82,7 @@ class TransitSearch(object):
 
     def __init__(self, infile, inject=False, **kwargs):        
         self.d = d = pf.getdata(infile,1)
-        m  = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
+        m  = isfinite(d.flux) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
         self.Kp = pf.getval(infile,'kepmag')
@@ -93,16 +93,16 @@ class TransitSearch(object):
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
-        self.flux   = (d.flux_1[m] 
-                       - d.trend_t_1[m] + nanmedian(d.trend_t_1[m]) 
-                       - d.trend_p_1[m] + nanmedian(d.trend_p_1[m]))
+        self.flux   = (d.flux[m] 
+                       - d.trend_t[m] + nanmedian(d.trend_t[m]) 
+                       - d.trend_p[m] + nanmedian(d.trend_p[m]))
         self.mflux   = nanmedian(self.flux)
         self.flux   /= self.mflux
-        self.flux_e  = d.error_1[m] / abs(self.mflux)
+        self.flux_e  = d.error[m] / abs(self.mflux)
 
-        self.flux_r  = d.flux_1[m] / self.mflux
-        self.trend_t = d.trend_t_1[m] / self.mflux
-        self.trend_p = d.trend_p_1[m] / self.mflux
+        self.flux_r  = d.flux[m] / self.mflux
+        self.trend_t = d.trend_t[m] / self.mflux
+        self.trend_p = d.trend_p[m] / self.mflux
 
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
         self.nbin = kwargs.get('nbin',900)
