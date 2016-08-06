@@ -11,6 +11,7 @@ from functools import wraps
 from os.path import basename
 from collections import namedtuple
 from scipy.ndimage import binary_dilation
+from scipy.ndimage import median_filter as mf
 from scipy.stats import scoreatpercentile
 
 from pyfits.card import Undefined
@@ -80,10 +81,29 @@ class TransitSearch(object):
          - fits a sine curve to the data to test for variability
     """
 
-    def __init__(self, infile, inject=False, **kwargs):        
+    def __init__(self, infile, inject=False, **kwargs):
+        ## Keyword arguments
+        ## -----------------
+        self.nbin = kwargs.get('nbin',900)
+        self.qmin = kwargs.get('qmin',0.002)
+        self.qmax = kwargs.get('qmax',0.115)
+        self.nf   = kwargs.get('nfreq',10000)
+        self.exclude_regions = kwargs.get('exclude_regions', [])
+
+        ## Read in the data
+        ## ----------------
         self.d = d = pf.getdata(infile,1)
         m  = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
+
+        fl = d.flux_1.copy()
+        tm = isfinite(fl)
+        fm = mf(fl[tm], 3)
+        sigma = (fl[tm]-fm).std()
+        m[tm] &= abs(fl[tm]-fm) < 5*sigma
+
+        for emin,emax in self.exclude_regions:
+            m[(d.time > emin) & (d.time < emax)] = 0
 
         self.Kp = pf.getval(infile,'kepmag')
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
@@ -104,12 +124,10 @@ class TransitSearch(object):
         self.trend_t = d.trend_t_1[m] / self.mflux
         self.trend_p = d.trend_p_1[m] / self.mflux
 
+        ## Initialise BLS
+        ## --------------
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
-        self.nbin = kwargs.get('nbin',900)
-        self.qmin = kwargs.get('qmin',0.002)
-        self.qmax = kwargs.get('qmax',0.115)
-        self.nf   = kwargs.get('nfreq',10000)
-        
+
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf, pmean='running_median')
 
