@@ -85,13 +85,20 @@ class TransitSearch(object):
         m  = isfinite(d.flux) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
-        self.Kp = pf.getval(infile,'kepmag')
-        self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
+        # try:
+        #     self.Kp = pf.getval(infile,'kepmag')
+        #     self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
+        # except:
+        self.Kp = 12. # placeholder!
 
         self.tm = MA(supersampling=12, nthr=1) 
         self.em = MA(supersampling=10, nldc=0, nthr=1)
 
-        self.epic   = int(basename(infile).split('_')[1])
+        try:
+            self.epic   = int(basename(infile).split('_')[1])
+        except:
+            self.epic = 200000000 # placeholder
+
         self.time   = d.time[m]
         self.flux   = (d.flux[m] 
                        - d.trtime[m] + nanmedian(d.trtime[m]) 
