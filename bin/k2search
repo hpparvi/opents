@@ -21,6 +21,9 @@ from copy import copy
 
 from matplotlib.gridspec import GridSpec
 from mpi4py import MPI
+from matplotlib import rc
+from matplotlib.gridspec import GridSpec
+from matplotlib.pyplot import figure, subplots, subplot
 
 from k2ps.psearch import *
 
