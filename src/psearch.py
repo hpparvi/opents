@@ -97,15 +97,15 @@ class TransitSearch(object):
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
         self.flux   = (d.flux[m] 
-                       - d.trend_t[m] + nanmedian(d.trend_t[m]) 
-                       - d.trend_p[m] + nanmedian(d.trend_p[m]))
+                       - d.trtime[m] + nanmedian(d.trtime[m]) 
+                       - d.trposi[m] + nanmedian(d.trposi[m]))
         self.mflux   = nanmedian(self.flux)
         self.flux   /= self.mflux
         self.flux_e  = d.error[m] / abs(self.mflux)
 
         self.flux_r  = d.flux[m] / self.mflux
-        self.trend_t = d.trend_t[m] / self.mflux
-        self.trend_p = d.trend_p[m] / self.mflux
+        self.trtime = d.trtime[m] / self.mflux
+        self.trposi = d.trposi[m] / self.mflux
 
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
         self.nbin = kwargs.get('nbin',900)
@@ -125,7 +125,7 @@ class TransitSearch(object):
         self.bls.pmul = cmask()
 
         try:
-            ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]
+            ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trposi)[0], acor(self.trtime)[0]
         except RuntimeError:
             ar,ac,ap,at = nan,nan,nan,nan
         self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
@@ -299,10 +299,10 @@ class TransitSearch(object):
 
     @bplot
     def plot_lc_pos(self, ax=None):
-        ax.plot(self.time, self.flux_r-self.trend_t+np.nanmedian(self.trend_t), '.')
+        ax.plot(self.time, self.flux_r-self.trtime+np.nanmedian(self.trtime), '.')
         ax.plot([],[])
-        # ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.trend_p, lw=1)
+        # ax.plot(self.time, self.trtime+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.trposi, lw=1)
         # ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
@@ -311,20 +311,20 @@ class TransitSearch(object):
     @bplot
     def plot_lc_time(self, ax=None):
         # ax.plot(self.time, self.flux_r, lw=1)
-        # ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.flux_r-self.trend_p+np.nanmedian(self.trend_p), '.')
+        # ax.plot(self.time, self.trposi+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trposi+np.nanmedian(self.trposi), '.')
         ax.plot([],[])
-        ax.plot(self.time, self.trend_t, lw=1)
+        ax.plot(self.time, self.trtime, lw=1)
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
 
     @bplot
     def plot_lc_white(self, ax=None):
         # ax.plot(self.time, self.flux_r, lw=1)
-        # ax.plot(self.time, self.trend_t, lw=1)
-        # ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.flux_r-self.trend_p+np.nanmedian(self.trend_p)
-            -self.trend_t+np.nanmedian(self.trend_t), '.')
+        # ax.plot(self.time, self.trtime, lw=1)
+        # ax.plot(self.time, self.trposi+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trposi+np.nanmedian(self.trposi)
+            -self.trtime+np.nanmedian(self.trtime), '.')
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
 
