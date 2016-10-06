@@ -85,7 +85,10 @@ class TransitSearch(object):
         m  = isfinite(d.flux) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
-        self.Kp = pf.getval(infile,'kepmag')
+        try:
+            self.Kp = pf.getval(infile,'kepmag')
+        except:
+            self.Kp = 12
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
 
         self.tm = MA(supersampling=12, nthr=1) 
