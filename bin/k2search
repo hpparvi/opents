@@ -136,9 +136,14 @@ if __name__ == '__main__':
             ts()
 
             if args.do_plots:
+                plot_dir = args.plot_dir
+                if plot_dir == '.':
+                    plot_dir = './'
                 [a.clear() for a in axes]
-                ts.plot_eclipse(ax_ec)
+                ts.plot_lc_pos(ax_lcpos)
                 ts.plot_lc_time(ax_lctime)
+                ts.plot_lc_white(ax_lcwhite)
+                ts.plot_eclipse(ax_ec)
                 ts.plot_lc(ax_lcfold)
                 ts.plot_fit_and_eo(ax_lcoe)
                 ts.plot_info(ax_info)
@@ -151,8 +156,10 @@ if __name__ == '__main__':
                 ax_lcoe[0].set_title('Folded transit and model')
                 ax_lcoe[1].set_title('Even and odd transits')
                 ax_lcfold.set_title('Folded light curve')
-                fig.tight_layout()
-                fig.savefig(join(args.plot_dir,'epic_{:9d}.{:s}'.format(ts.epic, args.plot_format)))
-
+                # fig.tight_layout()
+                # fig.savefig(join(args.plot_dir,'epic_{:9d}.'.format(ts.epic)))
+                print 'Saving to %sepic_%9d.%s' % (plot_dir,ts.epic,args.plot_format)
+                fig.savefig('%sepic_%9d.%s' % (plot_dir,ts.epic,args.plot_format))
+                
             comm.send((ts.epic, ts.result), dest=root, tag=2)    
 

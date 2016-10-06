@@ -295,11 +295,33 @@ class TransitSearch(object):
         return wrapper
 
     @bplot
+    def plot_lc_pos(self, ax=None):
+        ax.plot(self.time, self.flux_r-self.trend_t+np.nanmedian(self.trend_t), '.')
+        ax.plot([],[])
+        # ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.trend_p, lw=1)
+        # ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
+        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
+        setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
+
+
+    @bplot
     def plot_lc_time(self, ax=None):
-        ax.plot(self.time, self.flux_r, lw=1)
-        ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
+        # ax.plot(self.time, self.flux_r, lw=1)
+        # ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trend_p+np.nanmedian(self.trend_p), '.')
+        ax.plot([],[])
+        ax.plot(self.time, self.trend_t, lw=1)
+        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
+        setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
+
+    @bplot
+    def plot_lc_white(self, ax=None):
+        # ax.plot(self.time, self.flux_r, lw=1)
+        # ax.plot(self.time, self.trend_t, lw=1)
+        # ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trend_p+np.nanmedian(self.trend_p)
+            -self.trend_t+np.nanmedian(self.trend_t), '.')
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
 
@@ -331,7 +353,11 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = array([-0.5,0.5]) * duration
+        if duration >= (0.25/24.):
+            hdur = array([-0.5,0.5]) * duration
+        else:
+            hdur = array([-1.,1.])
+            duration = 0.5
 
         for time,flux_o in ((self.time_even,self.flux_even),
                             (self.time_odd,self.flux_odd)):
@@ -372,7 +398,11 @@ class TransitSearch(object):
     def plot_transit_fit(self, ax=None):
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.25,0.25])
+            duration = 0.5
 
         flux_m = self.transit_model(self._pv_trf)
         phase = 24*(fold(self.time, period, zero_epoch, 0.5, normalize=False) - 0.5*period)
@@ -389,7 +419,9 @@ class TransitSearch(object):
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)
         [ax.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
-        setp(ax, xlim=3*hdur, xlabel='Phase [h]', ylabel='Normalised flux')
+        fluxrange =flux_o.max()-flux_o.min()
+        setp(ax, xlim=3*hdur, ylim=[flux_o.min()-0.05*fluxrange,flux_o.max()+0.05*fluxrange],
+         xlabel='Phase [h]', ylabel='Normalised flux')
         setp(ax.get_yticklabels(), visible=False)
 
 
@@ -398,7 +430,11 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.25,0.25])
+            duration = 0.5
 
         self.plot_transit_fit(ax[0])
 
@@ -479,4 +515,3 @@ class TransitSearch(object):
                 size=9, va='top', ha='right')
         sb.despine(ax=ax, left=True, bottom=True)
         setp(ax, xticks=[], yticks=[])
- 
