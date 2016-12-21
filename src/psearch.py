@@ -82,7 +82,7 @@ class TransitSearch(object):
 
     def __init__(self, infile, inject=False, **kwargs):        
         self.d = d = pf.getdata(infile,1)
-        m  = isfinite(d.flux) & (d.flux>0.) & (~(d.mflags & 2**3).astype(np.bool))
+        m  = isfinite(d.flux) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
         try:
