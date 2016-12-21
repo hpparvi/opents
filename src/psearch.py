@@ -48,7 +48,7 @@ def rho_from_pas(period,a):
 ## Array type definitions
 ## ----------------------
 str_to_dt = lambda s: [tuple(t.strip().split()) for t in s.split(',')]
-dt_lcinfo    = str_to_dt('epic u8, flux_median f8, flux_std f8, lnlike_constant f8, type a8,'
+dt_lcinfo    = str_to_dt('epic u8, flux_median f8, Kp f8, flux_std f8, lnlike_constant f8, type a8,'
                          'acor_raw f8, acor_corr f8, acor_trp f8, acor_trt f8')
 dt_blsresult = str_to_dt('sde f8, bls_zero_epoch f8, bls_period f8, bls_duration f8, bls_depth f8,'
                          'bls_radius_ratio f8, ntr u4')
@@ -128,7 +128,7 @@ class TransitSearch(object):
             ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trposi)[0], acor(self.trtime)[0]
         except RuntimeError:
             ar,ac,ap,at = nan,nan,nan,nan
-        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
+        self.lcinfo = array((self.epic, self.mflux, self.Kp, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
 
         self._rbls = None
         self._rtrf = None
