@@ -99,13 +99,16 @@ if __name__ == '__main__':
             ## Receive the results
             for w in active_workers:
                 if comm.Iprobe(w, 2):
-                    epic, res = comm.recv(source=w, tag=2)
-                    results[epic] = res
-                    free_workers.append(w)
-                    active_workers.remove(w)
-                    n_finished_items += 1
-                    print "EPIC {:9d} {:3d}/{:3d}".format(epic, n_items,n_finished_items)
-            
+                    try:
+                        epic, res = comm.recv(source=w, tag=2)
+                        results[epic] = res
+                        free_workers.append(w)
+                        active_workers.remove(w)
+                        n_finished_items += 1
+                        print "EPIC {:9d} {:3d}/{:3d}".format(epic, n_items,n_finished_items)
+                    except:
+                        print "Failed on EPIC {:9d} {:3d}/{:3d}".format(epic, n_items,n_finished_items)
+                
             if time() - time_last_save > 30:
                 save(results)
                 time_last_save = time()
