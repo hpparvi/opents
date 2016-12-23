@@ -110,7 +110,7 @@ class TransitSearch(object):
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
         self.nbin = kwargs.get('nbin',900)
         if self.nbin > np.size(self.flux):
-            self.nbin = np.size(self.flux)/3.
+            self.nbin = np.size(self.flux)/3
         self.qmin = kwargs.get('qmin',0.002)
         self.qmax = kwargs.get('qmax',0.115)
         self.nf   = kwargs.get('nfreq',10000)
