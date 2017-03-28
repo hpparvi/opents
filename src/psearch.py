@@ -4,7 +4,7 @@ import math as mt
 import numpy as np
 import pandas as pd
 import seaborn as sb
-import pyfits as pf
+import astropy.io.fits as pf
 import matplotlib.pyplot as plt
 from functools import wraps
 
@@ -14,7 +14,7 @@ from scipy.ndimage import binary_dilation
 from scipy.ndimage import median_filter as mf
 from scipy.stats import scoreatpercentile
 
-from pyfits.card import Undefined
+from astropy.io.fits.card import Undefined
 from pytransit import MandelAgol as MA
 from pytransit import Gimenez as GM
 from exotk.utils.likelihood import ll_normal_es
@@ -35,7 +35,7 @@ from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, ab
 from acor import acor
 
 from matplotlib.pyplot import setp, subplots
-from bls import BLS
+from .bls import BLS
 
 def nanmedian(s):
     return np.median(s[np.isfinite(s)])
@@ -49,7 +49,7 @@ def rho_from_pas(period,a):
 ## Array type definitions
 ## ----------------------
 str_to_dt = lambda s: [tuple(t.strip().split()) for t in s.split(',')]
-dt_lcinfo    = str_to_dt('epic u8, flux_median f8, flux_std f8, lnlike_constant f8, type a8,'
+dt_lcinfo    = str_to_dt('epic u8, flux_median f8, Kp f8, flux_std f8, lnlike_constant f8, type a8,'
                          'acor_raw f8, acor_corr f8, acor_trp f8, acor_trt f8')
 dt_blsresult = str_to_dt('sde f8, bls_zero_epoch f8, bls_period f8, bls_duration f8, bls_depth f8,'
                          'bls_radius_ratio f8, ntr u4')
@@ -84,28 +84,26 @@ class TransitSearch(object):
     def __init__(self, infile, inject=False, **kwargs):
         ## Keyword arguments
         ## -----------------
-        self.nbin = kwargs.get('nbin',900)
-        self.qmin = kwargs.get('qmin',0.002)
-        self.qmax = kwargs.get('qmax',0.115)
-        self.nf   = kwargs.get('nfreq',10000)
+        self.nbin = kwargs.get('nbin', 900)
+        self.qmin = kwargs.get('qmin', 0.002)
+        self.qmax = kwargs.get('qmax', 0.115)
+        self.nf   = kwargs.get('nfreq', 10000)
         self.exclude_regions = kwargs.get('exclude_regions', [])
 
         ## Read in the data
         ## ----------------
         self.d = d = pf.getdata(infile,1)
-        m  = isfinite(d.flux_1) & (~(d.mflags_1 & 2**3).astype(np.bool))
+        m  = isfinite(d.flux) & isfinite(d.time) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
-
-        fl = d.flux_1.copy()
-        tm = isfinite(fl)
-        fm = mf(fl[tm], 3)
-        sigma = (fl[tm]-fm).std()
-        m[tm] &= abs(fl[tm]-fm) < 5*sigma
 
         for emin,emax in self.exclude_regions:
             m[(d.time > emin) & (d.time < emax)] = 0
 
-        self.Kp = pf.getval(infile,'kepmag')
+        try:
+            self.Kp = pf.getval(infile,'kepmag')
+        except:
+            self.Kp = 12
+
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
 
         self.tm = MA(supersampling=12, nthr=1) 
@@ -113,20 +111,23 @@ class TransitSearch(object):
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
-        self.flux   = (d.flux_1[m] 
-                       - d.trend_t_1[m] + nanmedian(d.trend_t_1[m]) 
-                       - d.trend_p_1[m] + nanmedian(d.trend_p_1[m]))
+        self.flux   = (d.flux[m] 
+                       - d.trtime[m] + nanmedian(d.trtime[m]) 
+                       - d.trposi[m] + nanmedian(d.trposi[m]))
         self.mflux   = nanmedian(self.flux)
         self.flux   /= self.mflux
-        self.flux_e  = d.error_1[m] / abs(self.mflux)
+        self.flux_e  = d.error[m] / abs(self.mflux)
 
-        self.flux_r  = d.flux_1[m] / self.mflux
-        self.trend_t = d.trend_t_1[m] / self.mflux
-        self.trend_p = d.trend_p_1[m] / self.mflux
+        self.flux_r  = d.flux[m] / self.mflux
+        self.trtime = d.trtime[m] / self.mflux
+        self.trposi = d.trposi[m] / self.mflux
 
         ## Initialise BLS
         ## --------------
         self.period_range = kwargs.get('period_range', (0.7,0.98*(self.time.max()-self.time.min())))
+        if self.nbin > np.size(self.flux):
+            self.nbin = int(np.size(self.flux)/3)
+        self.qmin = kwargs.get('qmin',0.002)
 
         self.bls =  BLS(self.time, self.flux, self.flux_e, period_range=self.period_range, 
                         nbin=self.nbin, qmin=self.qmin, qmax=self.qmax, nf=self.nf, pmean='running_median')
@@ -140,10 +141,10 @@ class TransitSearch(object):
         self.bls.pmul = cmask()
 
         try:
-            ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trend_p)[0], acor(self.trend_t)[0]
+            ar,ac,ap,at = acor(self.flux_r)[0], acor(self.flux)[0], acor(self.trposi)[0], acor(self.trtime)[0]
         except RuntimeError:
             ar,ac,ap,at = nan,nan,nan,nan
-        self.lcinfo = array((self.epic, self.mflux, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
+        self.lcinfo = array((self.epic, self.mflux, self.Kp, self.flux.std(), nan, nan, ar, ac, ap, at), dtype=dt_lcinfo)
 
         self._rbls = None
         self._rtrf = None
@@ -260,7 +261,7 @@ class TransitSearch(object):
         def minfun(pv, period, zero_epoch):
             if any(pv<0): return inf
             dummy = []
-            for j in range(4):
+            for j in range(1,4):
                 dummy.append(-ll_normal_es(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
             return np.nanmin(dummy)#-ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
         
@@ -281,7 +282,7 @@ class TransitSearch(object):
     ## ------
     def sine_model(self, pv, period, zero_epoch):
         return 1.+pv[0]*sin(2*pi/period*(self.time-zero_epoch) - 0.5*pi)
-    
+
     def transit_model(self, pv, time=None):
         time = self.time if time is None else time
         _i = mt.acos(pv[4]/pv[3])
@@ -313,11 +314,33 @@ class TransitSearch(object):
         return wrapper
 
     @bplot
+    def plot_lc_pos(self, ax=None):
+        ax.plot(self.time, self.flux_r-self.trtime+np.nanmedian(self.trtime), '.')
+        ax.plot([],[])
+        # ax.plot(self.time, self.trtime+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.trposi, lw=1)
+        # ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
+        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
+        setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
+
+
+    @bplot
     def plot_lc_time(self, ax=None):
-        ax.plot(self.time, self.flux_r, lw=1)
-        ax.plot(self.time, self.trend_t+2*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.trend_p+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
-        ax.plot(self.time, self.flux+1.1*(self.flux_r.min()-1), lw=1)
+        # ax.plot(self.time, self.flux_r, lw=1)
+        # ax.plot(self.time, self.trposi+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trposi+np.nanmedian(self.trposi), '.')
+        ax.plot([],[])
+        ax.plot(self.time, self.trtime, lw=1)
+        [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
+        setp(ax,xlim=self.time[[0,-1]])#, xlabel='Time', ylabel='Normalised flux')
+
+    @bplot
+    def plot_lc_white(self, ax=None):
+        # ax.plot(self.time, self.flux_r, lw=1)
+        # ax.plot(self.time, self.trtime, lw=1)
+        # ax.plot(self.time, self.trposi+4*(np.percentile(self.flux_r, [99])[0]-1), lw=1)
+        ax.plot(self.time, self.flux_r-self.trposi+np.nanmedian(self.trposi)
+            -self.trtime+np.nanmedian(self.trtime), '.')
         [ax.axvline(self.bls.tc+i*self._rbls['bls_period'], alpha=0.25, ls='--', lw=1) for i in range(35)]
         setp(ax,xlim=self.time[[0,-1]], xlabel='Time', ylabel='Normalised flux')
 
@@ -349,7 +372,11 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = array([-0.5,0.5]) * duration
+        if duration >= (0.25/24.):
+            hdur = array([-0.5,0.5]) * duration
+        else:
+            hdur = array([-1.,1.])
+            duration = 0.5
 
         for time,flux_o in ((self.time_even,self.flux_even),
                             (self.time_odd,self.flux_odd)):
@@ -375,7 +402,7 @@ class TransitSearch(object):
     def plot_transits(self, ax=None):
         offset = 1.1*scoreatpercentile([f.ptp() for f in self.fluxes], 95)
         twodur = 24*2*self.duration
-        for i,(time,flux) in enumerate(zip(self.times, self.fluxes)[:10]):
+        for i,(time,flux) in enumerate(list(zip(self.times, self.fluxes))[:10]):
             phase = 24*(fold(time, self.period, self.zero_epoch, 0.5, normalize=False) - 0.5*self.period)
             sids  = argsort(phase)
             phase, flux = phase[sids], flux[sids]
@@ -390,7 +417,11 @@ class TransitSearch(object):
     def plot_transit_fit(self, ax=None):
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.25,0.25])
+            duration = 0.5
 
         flux_m = self.transit_model(self._pv_trf)
         phase = 24*(fold(self.time, period, zero_epoch, 0.5, normalize=False) - 0.5*period)
@@ -407,7 +438,9 @@ class TransitSearch(object):
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)
         [ax.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
-        setp(ax, xlim=3*hdur, xlabel='Phase [h]', ylabel='Normalised flux')
+        fluxrange =flux_o.max()-flux_o.min()
+        setp(ax, xlim=3*hdur, ylim=[flux_o.min()-0.05*fluxrange,flux_o.max()+0.05*fluxrange],
+         xlabel='Phase [h]', ylabel='Normalised flux')
         setp(ax.get_yticklabels(), visible=False)
 
 
@@ -416,7 +449,11 @@ class TransitSearch(object):
         nbin = nbin or self.nbin
         res  = rarr(self.result)
         period, zero_epoch, duration = res.trf_period, res.trf_zero_epoch, res.trf_duration
-        hdur = 24*duration*array([-0.5,0.5])
+        if duration >= (0.25/24.):
+            hdur = 24*duration*array([-0.5,0.5])
+        else:
+            hdur = 24*array([-0.25,0.25])
+            duration = 0.5
 
         self.plot_transit_fit(ax[0])
 
@@ -497,4 +534,3 @@ class TransitSearch(object):
                 size=9, va='top', ha='right')
         sb.despine(ax=ax, left=True, bottom=True)
         setp(ax, xticks=[], yticks=[])
- 
