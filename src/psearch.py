@@ -82,7 +82,7 @@ class TransitSearch(object):
 
     def __init__(self, infile, inject=False, **kwargs):        
         self.d = d = pf.getdata(infile,1)
-        m  = isfinite(d.flux) & (~(d.mflags & 2**3).astype(np.bool))
+        m  = isfinite(d.flux) & isfinite(d.time) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
 
         try:
@@ -247,7 +247,7 @@ class TransitSearch(object):
         def minfun(pv, period, zero_epoch):
             if any(pv<0): return inf
             dummy = []
-            for j in range(4):
+            for j in range(1,4):
                 dummy.append(-ll_normal_es(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
             return np.nanmin(dummy)#-ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
         
@@ -268,7 +268,7 @@ class TransitSearch(object):
     ## ------
     def sine_model(self, pv, period, zero_epoch):
         return 1.+pv[0]*sin(2*pi/period*(self.time-zero_epoch) - 0.5*pi)
-    
+
     def transit_model(self, pv, time=None):
         time = self.time if time is None else time
         _i = mt.acos(pv[4]/pv[3])
