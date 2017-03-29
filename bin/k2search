@@ -75,7 +75,7 @@ if __name__ == '__main__':
 
         all_items = files[args.start_i:args.end_i]
         items = copy(all_items)
-
+        
         n_items = len(items)
         n_finished_items = 0
 
@@ -92,8 +92,8 @@ if __name__ == '__main__':
         while items or active_workers:
             ## Send an item
             while items and free_workers:
-                w = free_workers.pop()
-                comm.send(items.pop(), dest=w, tag=0)
+                w = free_workers.pop(0)
+                comm.send(items.pop(0), dest=w, tag=0)
                 active_workers.append(w)
 
             ## Receive the results

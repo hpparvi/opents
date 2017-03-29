@@ -95,10 +95,10 @@ class TransitSearch(object):
         self.d = d = pf.getdata(infile,1)
         m  = isfinite(d.flux) & isfinite(d.time) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
-
+        
         for emin,emax in self.exclude_regions:
             m[(d.time > emin) & (d.time < emax)] = 0
-
+            
         try:
             self.Kp = pf.getval(infile,'kepmag')
         except:
