@@ -1,50 +1,29 @@
-from __future__ import division
-
 import math as mt
-import numpy as np
-import pandas as pd
-import seaborn as sb
-import astropy.io.fits as pf
-import matplotlib.pyplot as plt
 from functools import wraps
-
 from os.path import basename
-from collections import namedtuple
-from scipy.ndimage import binary_dilation
-from scipy.ndimage import median_filter as mf
-from scipy.stats import scoreatpercentile
 
+import astropy.io.fits as pf
+import numpy as np
+import seaborn as sb
 from astropy.io.fits.card import Undefined
-from pytransit import MandelAgol as MA
-from pytransit import Gimenez as GM
-from exotk.utils.likelihood import ll_normal_es
-from scipy.optimize import minimize
-
-from pytransit.orbits_f import orbits as of
-from exotk.utils.orbits import as_from_rhop, i_from_baew
-from exotk.utils.misc_f import utilities as uf
-from exotk.utils.misc import fold
-
+from matplotlib.pyplot import setp, subplots
+from numpy import (array, ones_like, isfinite, median, nan, inf, abs,
+                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
+                   log, exp, argsort, nanmedian)
 from numpy.core.records import array as rarr
 from numpy.lib.recfunctions import merge_arrays
 
-from numpy import (array, zeros, ones, ones_like, isfinite, median, nan, inf, abs,
-                   sqrt, floor, diff, unique, concatenate, sin, pi, nanmin, nanmax,
-                   log, exp, argsort)
+from scipy.ndimage import binary_dilation
+from scipy.ndimage import median_filter as mf
+from scipy.optimize import minimize
+from scipy.stats import scoreatpercentile
 
-from acor import acor
-
-from matplotlib.pyplot import setp, subplots
 from .bls import BLS
 
-def nanmedian(s):
-    return np.median(s[np.isfinite(s)])
-
-from scipy.constants import G
-from exotk.utils.orbits import d_s
-
-def rho_from_pas(period,a):
-    return 1e-3*(3*pi)/G * a**3 * (period*d_s)**-2
+from pytransit import QuadraticModel, UniformModel
+from pytransit.orbits import as_from_rhop, rho_from_asp, d_from_pkaiews
+from pytransit.utils.misc import fold
+from pytransit.lpf.lpf import lnlike_normal_s
 
 ## Array type definitions
 ## ----------------------
@@ -60,12 +39,13 @@ dt_oeresult  = str_to_dt('lnlike_oe f8, oe_diff_k f8, oe_diff_a f8, oe_diff_b f8
 dt_poresult  = str_to_dt('po_lnlike_med f8, po_lnlike_std f8, po_lnlike_max f8, po_lnlike_min f8')
 dt_ecresult  = str_to_dt('ec_lnlratio f8, shift f8')
 
+
 class TransitSearch(object):
     """K2 transit search and candidate vetting
 
     Overview
     --------
-           The main idea is that we carry out a basic BLS search, continue with several model fits,
+    We carry out a basic BLS search, continue with several model fits,
        and fit all the (possibly sensible) statistics to a random forest classifier.
 
        Transit search
@@ -90,12 +70,21 @@ class TransitSearch(object):
         self.nf   = kwargs.get('nfreq', 10000)
         self.exclude_regions = kwargs.get('exclude_regions', [])
 
-        ## Read in the data
-        ## ----------------
+        # Read in the data
+        # ----------------
         self.d = d = pf.getdata(infile,1)
         m  = isfinite(d.flux) & isfinite(d.time) & (~(d.mflags & 2**3).astype(np.bool))
         m &= ~binary_dilation((d.quality & 2**20) != 0)
-        
+
+        # Remove outliers
+        # ---------------
+        fl = d.flux.copy()
+        fm = mf(fl[m], 3)
+        sigma = (fl[m] - fm).std()
+        m[m] &= abs(fl[m] - fm) < 5 * sigma
+
+        # Remove exluded regions
+        # ----------------------
         for emin,emax in self.exclude_regions:
             m[(d.time > emin) & (d.time < emax)] = 0
             
@@ -106,8 +95,8 @@ class TransitSearch(object):
 
         self.Kp = self.Kp if not isinstance(self.Kp, Undefined) else nan
 
-        self.tm = MA(supersampling=12, nthr=1) 
-        self.em = MA(supersampling=10, nldc=0, nthr=1)
+        self.tm = QuadraticModel(interpolate=False)
+        self.em = UniformModel()
 
         self.epic   = int(basename(infile).split('_')[1])
         self.time   = d.time[m]
@@ -184,14 +173,12 @@ class TransitSearch(object):
         self.flux_odd    = concatenate(self.fluxes[1::2])
         self.flux_e_even = concatenate(self.flux_es[0::2])
         self.flux_e_odd  = concatenate(self.flux_es[1::2])
-
         
     @property
     def result(self):
         return merge_arrays([self.lcinfo, self._rbls, self._rtrf,
                              self._rvar,  self._rtoe, self._rpol,
                              self._recl], flatten=True)
-        
         
     def __call__(self):
         """Runs a BLS search, fits a transit, and fits an EB model"""
@@ -201,7 +188,6 @@ class TransitSearch(object):
         self.fit_even_odd()
         self.per_orbit_likelihoods()
         self.test_eclipse()
-    
 
     def run_bls(self):
         b = self.bls
@@ -210,31 +196,28 @@ class TransitSearch(object):
                             floor(diff(self.time[[0,-1]])[0]/b.bper)), dt_blsresult)
         self._pv_bls = [b.bper, b.tc, sqrt(b.depth), as_from_rhop(2.5, b.bper), 0.1]
         self.create_transit_arrays()
-        self.lcinfo['lnlike_constant'] = ll_normal_es(self.flux, ones_like(self.flux), self.flux_e)
+        self.lcinfo['lnlike_constant'] = lnlike_normal_s(self.flux, ones_like(self.flux), self.flux_e)
         self.period = b.bper
         self.zero_epoch = b.tc
         self.duration = b.duration
 
-    
     def fit_transit(self):
         def minfun(pv):
             if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1) or not (0.75<pv[0]<80) or abs(pv[0]-pbls) > 1.: return inf
-            return -ll_normal_es(self.flux, self.transit_model(pv), self.flux_e)
+            return -lnlike_normal_s(self.flux, self.transit_model(pv), self.flux_e)
         
         pbls = self._pv_bls[0]
         mr = minimize(minfun, self._pv_bls, method='powell')
         lnlike, x = -mr.fun, mr.x
-        self._rtrf = array((lnlike, x[1], x[0], of.duration_circular(x[0],x[3],mt.acos(x[4]/x[3])),
+        self._rtrf = array((lnlike, x[1], x[0], d_from_pkaiews(x[0], x[3], mt.acos(x[4]/x[3]), 0.5*pi, 0, 0., 1),
                             x[2]**2, x[2], x[3], x[4]), dt_trfresult)
         self._pv_trf = mr.x.copy()
         self.period = x[0]
         self.zero_epoch = x[1]
-        self._rtrf['trf_duration']
-
 
     def per_orbit_likelihoods(self):
         pv = self._pv_trf
-        lnl = array([ll_normal_es(f, self.transit_model(pv, t), e) / t.size
+        lnl = array([lnlike_normal_s(f, self.transit_model(pv, t), e) / t.size
                for t,f,e in zip(self.times, self.fluxes, self.flux_es)])
         self._tr_lnlike_po = lnl
         self._tr_lnlike_med = lmed = median(lnl)
@@ -247,7 +230,7 @@ class TransitSearch(object):
     def fit_even_odd(self):
         def minfun(pv, time, flux, flux_e):
             if any(pv<=0) or (pv[3] <= 1) or (pv[4] > 1): return inf
-            return -ll_normal_es(flux, self.transit_model(pv, time), flux_e)
+            return -lnlike_normal_s(flux, self.transit_model(pv, time), flux_e)
         
         mr_even = minimize(minfun, self._pv_bls,
                            args=(self.time_even, self.flux_even, self.flux_e_even), method='powell')
@@ -262,8 +245,8 @@ class TransitSearch(object):
             if any(pv<0): return inf
             dummy = []
             for j in range(1,4):
-                dummy.append(-ll_normal_es(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
-            return np.nanmin(dummy)#-ll_normal_es(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
+                dummy.append(-lnlike_normal_s(self.flux, self.sine_model(pv, j*2*period, zero_epoch), self.flux_e))
+            return np.nanmin(dummy)#-lnlike_normal_s(self.flux, self.sine_model(pv, 2*period, zero_epoch), self.flux_e)
         
         mr = minimize(minfun, [self.flux.std()],
                       args=(self._rbls['bls_period'],self._rbls['bls_zero_epoch']), method='powell')
@@ -286,7 +269,7 @@ class TransitSearch(object):
     def transit_model(self, pv, time=None):
         time = self.time if time is None else time
         _i = mt.acos(pv[4]/pv[3])
-        return self.tm.evaluate(time, pv[2], [0.4, 0.1], pv[1], pv[0], pv[3], _i)
+        return self.tm.evaluate(time, pv[2], array([0.4, 0.1]), pv[1], pv[0], pv[3], _i)
     
     def eclipse_model(self, shift, time=None):
         time = self.time if time is None else time
@@ -294,9 +277,8 @@ class TransitSearch(object):
         _i = mt.acos(pv[4]/pv[3])
         return self.em.evaluate(time, pv[2], [], pv[1]+(0.5+shift)*pv[0], pv[0], pv[3], _i)
 
-
     def eclipse_likelihood(self, f, shift, time=None):
-        return ll_normal_es(self.flux, (1-f)+f*self.eclipse_model(shift, time), self.flux_e)
+        return lnlike_normal_s(self.flux, (1-f)+f*self.eclipse_model(shift, time), self.flux_e)
 
     ## Plotting
     ## --------
@@ -530,7 +512,7 @@ class TransitSearch(object):
                           'Stellar density'), size=9, va='top')
         ax.text(0.97,0.83, ('{:9.3f}\n{:9.3f}\n{:9.3f}\n{:9.3f}\n{:9.5f}\n'
                            '{:9.4f}\n{:9.3f}\n{:9.3f}\n{:0.3f}').format(res.sde[0],self.Kp,t0,p,tdep,sqrt(tdep),24*tdur,
-                                                                        res.trf_impact_parameter[0], rho_from_pas(p,a)),
+                                                                        res.trf_impact_parameter[0], rho_from_asp(a,p)),
                 size=9, va='top', ha='right')
         sb.despine(ax=ax, left=True, bottom=True)
         setp(ax, xticks=[], yticks=[])
