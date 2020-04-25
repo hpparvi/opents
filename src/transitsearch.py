@@ -399,55 +399,56 @@ class TransitSearch:
             h.append(Card('GPPLO', log(2 * pi / self.period), 'GP SHOT term log omega'), bottom=True)
 
     def _cf_add_transit_fit_results(self, hdul: HDUList, run: str, title: str):
-        p = self.transit_fit_results[run].parameters
-        c = run[0]
-        h = hdul[0].header
-        h.append(Card('COMMENT', '======================'))
-        h.append(Card('COMMENT', title))
-        h.append(Card('COMMENT', '======================'))
-        h.append(Card(f'TF{c}_T0', p.tc.med, 'Transit centre [BJD]'), bottom=True)
-        h.append(Card(f'TF{c}_T0E', p.tc.err, 'Transit centre uncertainty [d]'), bottom=True)
-        h.append(Card(f'TF{c}_PR', p.p.med, 'Orbital period [d]'), bottom=True)
-        h.append(Card(f'TF{c}_PRE', p.p.err, 'Orbital period uncertainty [d]'), bottom=True)
-        h.append(Card(f'TF{c}_RHO', p.rho.med, 'Stellar density [g/cm^3]'), bottom=True)
-        h.append(Card(f'TF{c}_RHOE', p.rho.err, 'Stellar density uncertainty [g/cm^3]'), bottom=True)
-        h.append(Card(f'TF{c}_B', p.b.med, 'Impact parameter'), bottom=True)
-        h.append(Card(f'TF{c}_BE', p.b.err, 'Impact parameter uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_AR', p.k2.med, 'Area ratio'), bottom=True)
-        h.append(Card(f'TF{c}_ARE', p.k2.err, 'Area ratio uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_SC', p.c_sin.med, 'Sine phase'), bottom=True)
-        h.append(Card(f'TF{c}_SCE', p.c_sin.err, 'Sine phase uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_SA', p.a_sin_0.med, 'Sine amplitude'), bottom=True)
-        h.append(Card(f'TF{c}_SAE', p.a_sin_0.err, 'Sine amplitude uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_RR', p.k.med, 'Radius ratio'), bottom=True)
-        h.append(Card(f'TF{c}_RRE', p.k.err, 'Radius ratio uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_A', p.a.med, 'Semi-major axis'), bottom=True)
-        h.append(Card(f'TF{c}_AE', p.a.err, 'Semi-major axis uncertainty'), bottom=True)
-        h.append(Card(f'TF{c}_T14', p.t14.med, 'Transit duration T14 [d]'), bottom=True)
-        h.append(Card(f'TF{c}_T14E', p.t14.err, 'Transit duration T14 uncertainty [d]'), bottom=True)
-        if isfinite(p.t23.med):
-            h.append(Card(f'TF{c}_T23', p.t23.med, 'Transit duration T23 [d]'), bottom=True)
-            h.append(Card(f'TF{c}_T23E', p.t23.err, 'Transit duration T23 uncertainty [d]'), bottom=True)
-            h.append(Card(f'TF{c}_TDR', p.t23.med / p.t14.med, 'T23 to T14 ratio'), bottom=True)
-        else:
-            h.append(Card(f'TF{c}_T23', 0, 'Transit duration T23 [d]'), bottom=True)
-            h.append(Card(f'TF{c}_T23E', 0, 'Transit duration T23 uncertainty [d]'), bottom=True)
-            h.append(Card(f'TF{c}_TDR', 0, 'T23 to T14 ratio'), bottom=True)
-        h.append(Card(f'TF{c}_WN', 10 ** p.wn_loge_0.med, 'White noise std'), bottom=True)
-        h.append(Card(f'TF{c}_GRAZ', p.b.med + p.k.med > 1., 'Is the transit grazing'), bottom=True)
+        if run in self.transit_fit_results:
+            p = self.transit_fit_results[run].parameters
+            c = run[0]
+            h = hdul[0].header
+            h.append(Card('COMMENT', '======================'))
+            h.append(Card('COMMENT', title))
+            h.append(Card('COMMENT', '======================'))
+            h.append(Card(f'TF{c}_T0', p.tc.med, 'Transit centre [BJD]'), bottom=True)
+            h.append(Card(f'TF{c}_T0E', p.tc.err, 'Transit centre uncertainty [d]'), bottom=True)
+            h.append(Card(f'TF{c}_PR', p.p.med, 'Orbital period [d]'), bottom=True)
+            h.append(Card(f'TF{c}_PRE', p.p.err, 'Orbital period uncertainty [d]'), bottom=True)
+            h.append(Card(f'TF{c}_RHO', p.rho.med, 'Stellar density [g/cm^3]'), bottom=True)
+            h.append(Card(f'TF{c}_RHOE', p.rho.err, 'Stellar density uncertainty [g/cm^3]'), bottom=True)
+            h.append(Card(f'TF{c}_B', p.b.med, 'Impact parameter'), bottom=True)
+            h.append(Card(f'TF{c}_BE', p.b.err, 'Impact parameter uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_AR', p.k2.med, 'Area ratio'), bottom=True)
+            h.append(Card(f'TF{c}_ARE', p.k2.err, 'Area ratio uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_SC', p.c_sin.med, 'Sine phase'), bottom=True)
+            h.append(Card(f'TF{c}_SCE', p.c_sin.err, 'Sine phase uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_SA', p.a_sin_0.med, 'Sine amplitude'), bottom=True)
+            h.append(Card(f'TF{c}_SAE', p.a_sin_0.err, 'Sine amplitude uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_RR', p.k.med, 'Radius ratio'), bottom=True)
+            h.append(Card(f'TF{c}_RRE', p.k.err, 'Radius ratio uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_A', p.a.med, 'Semi-major axis'), bottom=True)
+            h.append(Card(f'TF{c}_AE', p.a.err, 'Semi-major axis uncertainty'), bottom=True)
+            h.append(Card(f'TF{c}_T14', p.t14.med, 'Transit duration T14 [d]'), bottom=True)
+            h.append(Card(f'TF{c}_T14E', p.t14.err, 'Transit duration T14 uncertainty [d]'), bottom=True)
+            if isfinite(p.t23.med) and isfinite(p.t23.err):
+                h.append(Card(f'TF{c}_T23', p.t23.med, 'Transit duration T23 [d]'), bottom=True)
+                h.append(Card(f'TF{c}_T23E', p.t23.err, 'Transit duration T23 uncertainty [d]'), bottom=True)
+                h.append(Card(f'TF{c}_TDR', p.t23.med / p.t14.med, 'T23 to T14 ratio'), bottom=True)
+            else:
+                h.append(Card(f'TF{c}_T23', 0, 'Transit duration T23 [d]'), bottom=True)
+                h.append(Card(f'TF{c}_T23E', 0, 'Transit duration T23 uncertainty [d]'), bottom=True)
+                h.append(Card(f'TF{c}_TDR', 0, 'T23 to T14 ratio'), bottom=True)
+            h.append(Card(f'TF{c}_WN', 10 ** p.wn_loge_0.med, 'White noise std'), bottom=True)
+            h.append(Card(f'TF{c}_GRAZ', p.b.med + p.k.med > 1., 'Is the transit grazing'), bottom=True)
 
-        ep, ll = self.transit_fit_results[run].lnldiff
-        lm = ll.max()
-        h.append(Card(f'TF{c}_DLLA', log(exp(ll - lm).mean()) + lm, 'Mean per-orbit delta log likelihood'), bottom=True)
-        if run == 'all':
-            m = ep % 2 == 0
-            lm = ll[m].max()
-            h.append(Card(f'TFA_DLLO', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (odd)'),
-                     bottom=True)
-            m = ep % 2 != 0
-            lm = ll[m].max()
-            h.append(Card(f'TFA_DLLE', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (even)'),
-                     bottom=True)
+            ep, ll = self.transit_fit_results[run].lnldiff
+            lm = ll.max()
+            h.append(Card(f'TF{c}_DLLA', log(exp(ll - lm).mean()) + lm, 'Mean per-orbit delta log likelihood'), bottom=True)
+            if run == 'all':
+                m = ep % 2 == 0
+                lm = ll[m].max()
+                h.append(Card(f'TFA_DLLO', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (odd)'),
+                         bottom=True)
+                m = ep % 2 != 0
+                lm = ll[m].max()
+                h.append(Card(f'TFA_DLLE', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (even)'),
+                         bottom=True)
 
     def _cf_post_hook(self, hdul: HDUList):
         pass
