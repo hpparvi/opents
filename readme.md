@@ -1,18 +1,19 @@
-# K2 Planet search
+# Open exoplanet transit search pipeline
 
-Oxford K2 planet search pipeline. Searches for transit-like signals from the `k2sc`-detrended light curves.
+Open exoplanet transit search pipeline (OpenTS) is a Python package for searching exoplanet
+transit signals from photometric light curves. OpenTS currently supports K2SC and SPOC TESS 
+light curves, but more input sources will be supported soon.
+
+The pipeline is a successor to the "Oxford K2 planet search pipeline" that was used in 
+Pope et al. (2016).
 
 ## Installation
 
-    python setup.py install --user
+    python setup.py install
 
 ## Usage
 
-    k2search 
-
-## Disclaimer
-
-Functional but very ugly code, will be cleaned up in the near future.
+    mpirun -n X tessts
 
 ## Authors
 
