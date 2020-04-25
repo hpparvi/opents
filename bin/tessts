@@ -1,22 +1,12 @@
 #!/usr/bin/env python
-"""Script to search for transit-like signals from k2sc-detrended K2 light curves.
+"""Script to search for exoplanet transits from SPOC TESS light curves.
 
 """
-import sys
-from copy import copy
-
-import matplotlib as mpl
-
-mpl.use('AGG')
-import matplotlib.pyplot as pl
-import pandas as pd
 
 from pathlib import Path
-from os.path import join, abspath
-from collections import OrderedDict
 from argparse import ArgumentParser
-from time import time
 from mpi4py import MPI
+from tqdm import tqdm
 
 from opents.tesstransitsearch import TESSTransitSearch
 
@@ -44,7 +34,7 @@ if __name__ == '__main__':
 
     ddata = args.data_dir
     if not ddata.exists():
-        raise FileNotFoundError(f"The data directory  {ddir} doesn't exist")
+        raise FileNotFoundError(f"The data directory  {ddata} doesn't exist")
 
     # Master node
     # -----------
@@ -55,20 +45,22 @@ if __name__ == '__main__':
 
         n_files = len(files)
         n_finished_files = 0
-        while files or active_workers:
-            while files and free_workers:
-                w = free_workers.pop(0)
-                comm.send(files.pop(0), dest=w, tag=0)
-                active_workers.append(w)
+        with tqdm(desc='TESS Transit Search', total=n_files) as pbar:
+            while files or active_workers:
+                while files and free_workers:
+                    w = free_workers.pop(0)
+                    comm.send(files.pop(0), dest=w, tag=0)
+                    active_workers.append(w)
 
-            for w in active_workers:
-                if comm.Iprobe(w, 2):
-                    free_workers.append(w)
-                    active_workers.remove(w)
-                    n_finished_files += 1
+                for w in active_workers:
+                    if comm.Iprobe(w, 2):
+                        free_workers.append(w)
+                        active_workers.remove(w)
+                        n_finished_files += 1
+                        pbar.update(1)
 
-        for w in free_workers:
-            comm.send(-1, dest=w, tag=0)
+            for w in free_workers:
+                comm.send(-1, dest=w, tag=0)
 
     # Worker node
     # -----------
@@ -78,7 +70,7 @@ if __name__ == '__main__':
             if fname == -1:
                 break
 
-            ts = TESSTransitSearch()
+            ts = TESSTransitSearch(use_tqdm=False)
             ts.read_data(fname)
             ts.run()
 
