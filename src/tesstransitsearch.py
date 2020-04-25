@@ -1,11 +1,13 @@
 from pathlib import Path
-from typing import Union
+from typing import Union, List, Optional
 
-from astropy.io.fits import Card, getheader, PrimaryHDU
-from astropy.stats import mad_std
+from astropy.io.fits import Card, getheader, Header
+from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
-from numpy import median, isfinite, percentile, argsort
+from matplotlib.artist import setp
+from numpy import median, isfinite, argsort, ndarray, unique
 from pytransit.lpf.tesslpf import downsample_time
+from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 
 from .transitsearch import TransitSearch
@@ -14,24 +16,18 @@ from .transitsearch import TransitSearch
 class TESSTransitSearch(TransitSearch):
     def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, snr_limit: float = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
-
-        self.bls_result = None
-        self.ls_result = None
-
-        self._h0 = None
-        self._h1 = None
-        self._flux_sap = None
-        self._flux_pdcsap = None
-
+        self.sectors: List = []
+        self._h0: Optional[Header] = None
+        self._h1: Optional[Header] = None
+        self._flux_sap: Optional[ndarray] = None
+        self._flux_pdcsap: Optional[ndarray] = None
         super().__init__(pmin, pmax, nper, snr_limit, nsamples, exptime, use_tqdm, use_opencl)
 
-    @property
-    def basename(self):
-        return self.name
-
-    def save_fits(self, savedir: Path):
-        raise NotImplementedError
-
+    # Data input
+    # ==========
+    # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
+    # minimum any subclass needs to implement for the class to function.
+    #
     def _reader(self, filename: Union[Path, str]):
         filename = Path(filename).resolve()
         tb = Table.read(filename)
@@ -44,70 +40,79 @@ class TESSTransitSearch(TransitSearch):
         flux /= median(flux)
         self._h0 = getheader(filename, 0)
         self._h1 = getheader(filename, 1)
-        self.name = self._h0['OBJECT'].replace(' ', '_')
         self._flux_pdcsap = flux
         self._flux_sap = tb['SAP_FLUX'].data.astype('d')[mask]
         self._flux_sap /= median(self._flux_sap)
-        return time, flux, ferr
+        name = self._h0['OBJECT'].replace(' ', '_')
+        self.teff = self._h0['TEFF']
+        return name, time, flux, ferr
 
-    def _create_fits(self):
-        phdu = PrimaryHDU()
-        h = phdu.header
+    # FITS file output
+    # ================
+    # The `TransitSearch` class creates a fits file with the basic information, but we can override or
+    # supplement the fits file creation methods to add TESS specific information that can be useful in
+    # candidate vetting.
+    #
+    # Here we override the method to add the information about the star available in the SPOC TESS light
+    # curve file, and the method to add the CDPP, variability, and crowding estimates from the SPOC TESS
+    # light curve file.
 
-        h.append(Card('name', self.name))
-        h.append(Card('ticid', self._h0['TICID'], self._h0.comments['TICID']))
-        h.append(Card('pmin', self.pmin, 'Minimum search period [d]'))
-        h.append(Card('pmax', self.pmax, 'Maximum search period [d]'))
-        h.append(Card('nper', self.nper, 'Period grid size'))
-        h.append(Card('dper', (self.pmax - self.pmin) / self.nper, 'Period grid step size [d]'))
-
+    def _cf_add_stellar_info(self, hdul):
+        h = hdul[0].header
         h.append(Card('COMMENT', '======================'))
-        h.append(Card('COMMENT', ' Stellar information '))
+        h.append(Card('COMMENT', ' Stellar information  '))
         h.append(Card('COMMENT', '======================'))
-
-        keys = 'tessmag ra_obj dec_obj teff logg radius'.upper().split()
+        keys = 'ticid tessmag ra_obj dec_obj teff logg radius'.upper().split()
         for k in keys:
             h.append(Card(k, self._h0[k], self._h0.comments[k]), bottom=True)
 
-        h.append(Card('COMMENT', '======================'))
-        h.append(Card('COMMENT', ' Summary statistics  '))
-        h.append(Card('COMMENT', '======================'))
-
+    def _cf_add_summary_statistics(self, hdul):
+        super()._cf_add_summary_statistics(hdul)
+        h = hdul[0].header
         keys = "cdpp0_5 cdpp1_0 cdpp2_0 crowdsap flfrcsap pdcvar".upper().split()
         for k in keys:
             h.append(Card(k, self._h1[k], self._h1.comments[k]), bottom=True)
 
-        h.append(Card('fstd', self.flux.std(), "Flux standard deviation"))
-        h.append(Card('fmadstd', mad_std(self.flux), "Flux MAD standard deviation"))
+    # Plotting
+    # ========
+    # While the basic `TransitSearch` class implements most of the plotting methods, some should be
+    # customised for the data at hand. For example, you can plot the detrended and raw light curves
+    # separately in the `plot_flux_vs_time` method rather than just the flux used to do the search.
 
-        ps = [0.1, 1, 5, 95, 99, 99.9]
-        pvs = percentile(self.flux, ps)
-        pks = [f"fpc{int(10 * p):03d}" for p in ps]
+    def plot_flux_vs_time(self, ax=None):
+        tref = 2457000
 
-        for p, pk, pv in zip(ps, pks, pvs):
-            h.append(Card(pk, pv, f"{p:4.1f} normalized flux percentile"), bottom=True)
+        ax.text(0.013, 0.96, "Raw and detrended flux", size=15, va='top', transform=ax.transAxes,
+                bbox={'facecolor': 'w', 'edgecolor': 'w'})
 
-        if self.bls_result is not None:
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', '     BLS results     '))
-            h.append(Card('COMMENT', '======================'))
+        transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
+        [ax.axvline(t - tref, ls='--', alpha=0.5, lw=1) for t in transits]
 
-            h.append(Card('bls_snr', self.snr, 'BLS depth signal to noise ratio'), bottom=True)
-            h.append(Card('period', self.period, 'Orbital period [d]'), bottom=True)
-            h.append(Card('epoch', self.zero_epoch, 'Zero epoch [BJD]'), bottom=True)
-            h.append(Card('duration', self.duration, 'Transit duration [d]'), bottom=True)
-            h.append(Card('depth', self.bls_result.depth, 'Transit depth'), bottom=True)
+        fsap = self._flux_sap
+        fpdc = self._flux_pdcsap
+        fpdc = fpdc + 1 - fpdc.min() + 3 * fsap.std()
 
-        if self.ls_result is not None:
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', ' Lomb-Scargle results '))
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('lsper', self.ls_result.period, 'Lomg-Scargle period [d]'), bottom=True)
-            h.append(Card('lspow', self.ls_result.power, 'Lomg-Scargle power'), bottom=True)
-            h.append(Card('lsfap', self.ls.false_alarm_probability(self.ls_result.power),
-                          'Lomg-Scargle false alarm probability'), bottom=True)
+        ax.plot(self.time - tref, fpdc, label='PDC')
+        tb, fb, eb = downsample_time(self.time - tref, fpdc, 1 / 24)
+        ax.plot(tb, fb, 'k', lw=1)
 
-        return phdu
+        ax.plot(self.time - tref, fsap, label='SAP')
+        tb, fb, eb = downsample_time(self.time - tref, fsap, 1 / 24)
+        ax.plot(tb, fb, 'k', lw=1)
+
+        def time2epoch(x):
+            return (x + tref - self.t0) / self.period
+
+        def epoch2time(x):
+            return self.t0 - tref + x * self.period
+
+        secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
+        secax.set_xlabel('Epoch')
+
+        ax.legend(loc='upper right')
+        ax.autoscale(axis='x', tight=True)
+        ax.set_ylim((ax.get_ylim()[0], median(fpdc) + 5 * sigma_clipped_stats(fpdc)[2]))
+        setp(ax, xlabel=f'Time - {tref} [BJD]', ylabel='Normalized flux')
 
     def plot_flux_vs_phase(self, ax=None, n: float = 1, nbin: int = 100):
         fsap = self._flux_sap
