@@ -26,16 +26,30 @@ from tqdm import tqdm
 
 from opents.tesstransitsearch import TESSTransitSearch
 
+def read_data_directory(ddir: Path, tic: int = None, tic_pattern: str = '*'):
+    if tic is not None:
+        tic_pattern = f'*{tic}*'
+    files = sorted(ddir.glob(f'tess*-s*-{tic_pattern}-*s_lc.fits'))
+    tic_files = {}
+    for f in files:
+        tic = int(f.name.split('-')[2])
+        if not tic in tic_files:
+            tic_files[tic] = []
+        tic_files[tic].append(f)
+    return tic_files
+
+
 if __name__ == '__main__':
     ap = ArgumentParser()
-    ap.add_argument('run_name', type=str)
+    ap.add_argument('--tic', type=int, default=None)
+    ap.add_argument('--tic-pattern', type=str, default="*")
+    ap.add_argument('--max-planets', type=int, default=5)
     ap.add_argument('--data-dir', default='.', type=Path)
     ap.add_argument('--save-dir', default='.', type=Path)
     ap.add_argument('--plot-dir', default='.', type=Path)
     ap.add_argument('--dont-plot', dest='plot', action='store_false', default=True)
     ap.add_argument('--plot-format', type=str, default='pdf', choices=['pdf', 'png'], help='File format for plots')
-    ap.add_argument('--start-i', default=0, type=int)
-    ap.add_argument('--end-i', default=None, type=int)
+    ap.add_argument('--bic-limit', type=float, default=5)
     args = ap.parse_args()
 
     root = 0
@@ -55,17 +69,19 @@ if __name__ == '__main__':
     # Master node
     # -----------
     if is_root:
-        files = sorted(ddata.glob('*.fits'))[args.start_i:args.end_i]
+        files = read_data_directory(ddata, tic=args.tic, tic_pattern=args.tic_pattern)
+        tics = sorted(files.keys())
+
         free_workers = list(range(1, size))
         active_workers = []
 
-        n_files = len(files)
+        n_files = len(tics)
         n_finished_files = 0
         with tqdm(desc='TESS Transit Search', total=n_files) as pbar:
-            while files or active_workers:
-                while files and free_workers:
+            while tics or active_workers:
+                while tics and free_workers:
                     w = free_workers.pop(0)
-                    comm.send(files.pop(0), dest=w, tag=0)
+                    comm.send(files[tics.pop(0)], dest=w, tag=0)
                     active_workers.append(w)
 
                 for w in active_workers:
@@ -86,16 +102,21 @@ if __name__ == '__main__':
             if fname == -1:
                 break
 
-            ts = TESSTransitSearch(use_tqdm=False)
+            ts = TESSTransitSearch(bic_limit=args.bic_limit, use_tqdm=False)
             ts.read_data(fname)
-            ts.run()
+            for i in range(args.max_planets):
+                ts.run()
+                f = ts._create_fits()
+                f.writeto(args.save_dir / f"{ts.name}_{ts.planet}.fits", overwrite=True)
 
-            f = ts._create_fits()
-            f.writeto(args.save_dir / f"{ts.name}_{ts.planet}.fits", overwrite=True)
+                if args.plot:
+                    fig = ts.plot_report()
+                    fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet}.png")
 
-            if args.plot:
-                fig = ts.plot_report()
-                fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet}_SNR_{ts.snr:05.0f}.png")
+                if ts.dbic > args.bic_limit:
+                    ts.next_planet()
+                else:
+                    break
 
             comm.send(1, dest=root, tag=2)
 

@@ -32,7 +32,7 @@ from matplotlib.axis import Axis
 from matplotlib.gridspec import GridSpec
 from matplotlib.pyplot import subplots, setp, errorbar, figure, subplot
 from numpy import linspace, array, argmax, ones, floor, log, pi, sin, argsort, unique, median, zeros, atleast_2d, \
-    ndarray, squeeze, percentile, inf, asarray, sqrt, arcsin, exp, isfinite
+    ndarray, squeeze, percentile, inf, asarray, sqrt, arcsin, exp, isfinite, zeros_like, fabs, diff
 from pytransit import BaseLPF, QuadraticModelCL, QuadraticModel
 from pytransit.lpf.loglikelihood import CeleriteLogLikelihood
 from pytransit.orbits import epoch
@@ -47,6 +47,9 @@ from scipy.optimize import minimize
 from typing import Optional
 from numba import njit
 
+from .plots import bplot
+
+
 @njit(fastmath=True)
 def sine_model(time, period, phase, amplitudes):
     npv = period.size
@@ -58,6 +61,21 @@ def sine_model(time, period, phase, amplitudes):
         for j in range(nsn):
             bl[i, :] += amplitudes[i, j] * sin(2 * pi * (time - phase[i] * period[i]) / (period[i] / (j + 1)))
     return bl
+
+
+@njit
+def running_median(xs, ys, width, nbin):
+    bx = linspace(0, 1, nbin)
+    by = zeros_like(bx)
+    hwidth = 0.5 * width
+    for i, x in enumerate(bx):
+        m = fabs(xs - x) < hwidth
+        if x < hwidth:
+            m |= xs > x + 1 - hwidth
+        if x > 1 - hwidth:
+            m |= xs < x - 1 + hwidth
+        by[i] = median(ys[m])
+    return bx, by
 
 
 class SineBaseline:
@@ -105,7 +123,6 @@ class SineBaseline:
         return squeeze(bl)
 
 
-
 class BLSResult:
     def __init__(self, bls, ts):
         self.bls = bls
@@ -150,7 +167,7 @@ class SearchLPF(BaseLPF):
 
 
 class TransitSearch:
-    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, snr_limit: float = 3,
+    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, bic_limit: float = 5,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
 
         self.name: Optional[str] = None
@@ -162,7 +179,7 @@ class TransitSearch:
         self.exptime: float = exptime
         self.use_tqdm: bool = use_tqdm
         self.use_opencl: bool = use_opencl
-        self.snr_limit: float = snr_limit
+        self.bic_limit: float = bic_limit
 
         self.bls = None
         self.bls_result = None
@@ -170,6 +187,7 @@ class TransitSearch:
         self.ls_result = None
         self.transit_fits = {}
         self.transit_fit_results = {}
+        self.transit_fit_masks = {}
         self.gp_result = None
         self.gp_periodicity = None
 
@@ -192,18 +210,38 @@ class TransitSearch:
         raise NotImplementedError
 
     def run(self):
-        info("Running BLS")
-        self.run_bls()
         info("Running Lomb-Scargle")
         self.run_lomb_scargle()
         info("Running Celerite")
         self.fit_gp_periodicity()
+        info("Possibly maybe perhaps removing a periodic signal")
+        self.possibly_remove_periodic_variability()
+        info("Running BLS")
+        self.run_bls()
         info("Fitting all transits")
-        self.tf_both = self.fit_transit(mode='all')
+        self.fit_transit(mode='all')
+        self.dbic = self.calculate_delta_bic()
         info("Fitting odd transits")
-        self.tf_odd = self.fit_transit(mode='odd')
+        self.fit_transit(mode='odd')
         info("Fitting even transits")
-        self.tf_even = self.fit_transit(mode='even')
+        self.fit_transit(mode='even')
+
+    def next_planet(self):
+        self.planet += 1
+        self.flux[self.transit_fit_masks['all']] /= self.transit_fit_results['all'].transit
+        self.bls = None
+        self.bls_result = None
+        self.ls = None
+        self.ls_result = None
+        self.transit_fits = {}
+        self.transit_fit_results = {}
+        self.transit_fit_masks = {}
+        self.gp_result = None
+        self.gp_periodicity = None
+        self.period: Optional[float] = None        # Orbital period
+        self.zero_epoch: Optional[float] = None    # Zero epoch
+        self.duration: Optional[float] = None      # Transit duration in days
+        self.snr: Optional[float] = None           # Transit signal-to-noise ratio
 
     def update_ephemeris(self, zero_epoch, period, duration):
         self.zero_epoch = zero_epoch
@@ -216,20 +254,6 @@ class TransitSearch:
         self.name = name
         self._setup_data(time, flux, ferr)
 
-    def run_bls(self):
-        periods = linspace(self.pmin, self.pmax, self.nper)
-        durations = array([0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]) / 24
-        self.bls = BoxLeastSquares(self.time * u.day, self.flux, self.ferr)
-        self.bls_result = r = BLSResult(self.bls.power(periods, durations, objective='snr'), self)
-        self.update_ephemeris(r.t0, r.period, r.duration)
-        self.snr = self.bls_result.snr
-
-    def run_lomb_scargle(self):
-        self.ls = LombScargle(self.time, self.flux)
-        freq = linspace(1 / self.pmax, 1 / self.pmin, 1000)
-        power = self.ls.power(freq)
-        self.ls_result = LombScargleResult(1 / freq, power)
-
     def _setup_data(self, time, flux, ferr):
         self.time = time
         self.flux = flux
@@ -237,6 +261,20 @@ class TransitSearch:
 
     def _reader(self, filename: Path):
         raise NotImplementedError
+
+    def run_lomb_scargle(self):
+        self.ls = LombScargle(self.time, self.flux)
+        freq = linspace(1 / self.pmax, 1 / self.pmin, 1000)
+        power = self.ls.power(freq)
+        self.ls_result = LombScargleResult(1 / freq, power)
+
+    def run_bls(self):
+        periods = linspace(self.pmin, self.pmax, self.nper)
+        durations = array([0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]) / 24
+        self.bls = BoxLeastSquares(self.time * u.day, self.flux, self.ferr)
+        self.bls_result = r = BLSResult(self.bls.power(periods, durations, objective='snr'), self)
+        self.update_ephemeris(r.t0, r.period, r.duration)
+        self.snr = self.bls_result.snr
 
     def fit_transit(self, npop: int = 30, de_niter: int = 1000, mcmc_niter: int = 100, mcmc_repeats: int = 2,
                     mode: str = 'all', initialize_only: bool = False):
@@ -249,6 +287,10 @@ class TransitSearch:
             mask = epochs % 2 == 1
         else:
             raise NotImplementedError
+
+        mask &= abs(self.phase - 0.5*self.period) < 4 * 0.5 * self.duration
+
+        self.transit_fit_masks[mode] = mask
 
         epochs = epochs[mask]
         time = self.time[mask]
@@ -268,7 +310,7 @@ class TransitSearch:
             priorp = self.transit_fit_results['all'].parameters
             lpf.set_prior('tc', 'NP', priorp.tc.med, priorp.tc.err)
             lpf.set_prior('p', 'NP', priorp.p.med, priorp.p.err)
-            lpf.set_prior('k2', 'UP', max(0.01**2, 0.5 * priorp.k2.med), min(0.6**2, 2 * priorp.k2.med))
+            lpf.set_prior('k2', 'UP', max(0.01**2, 0.5 * priorp.k2.med), max(0.08**2, min(0.6**2, 2 * priorp.k2.med)))
             lpf.set_prior('q1_Kepler', 'NP', priorp.q1_Kepler.med, priorp.q1_Kepler.err)
             lpf.set_prior('q2_Kepler', 'NP', priorp.q2_Kepler.med, priorp.q2_Kepler.err)
 
@@ -314,7 +356,7 @@ class TransitSearch:
             return res
 
     def fit_gp_periodicity(self, period: float = None):
-        period = period if period is not None else self.period
+        period = period if period is not None else self.ls_result.period
 
         gp = GP(SHOTerm(log(self.flux.var()), log(10), log(2 * pi / period)), mean=1.)
         gp.freeze_parameter('kernel:log_omega0')
@@ -328,6 +370,48 @@ class TransitSearch:
         res = minimize(minfun, gp.get_parameter_vector(), jac=False, method='powell')
         self.gp_result = res
         self.gp_periodicity = res.x
+        self.gp_prediction = gp.predict(self.flux, return_cov=False)
+        #self.flux -= self.gp_prediction - 1.
+
+    def possibly_remove_periodic_variability(self):
+        phase = fold(self.time, self.ls_result.period)
+        bp, bf = running_median(phase, self.flux, 0.05, 100)
+        pv = interp1d(bp, bf)(phase)
+
+        df = abs(diff(pv) / diff(self.time))
+        ps = percentile(df, [80, 99.5])
+
+        pv_amplitude = bf.ptp()
+        bfn = -bf
+        bfn -= bfn.min() - 1e-12
+        bfn /= bfn.sum()
+        pv_entropy = -(bfn * log(bfn)).sum()
+
+        max_slope = df.max()
+        slope_percentile_ratio = ps[0] / ps[1]
+
+        self.pvar_phase = phase
+        self.pvar_model = pv
+        self.pvar_spr = slope_percentile_ratio
+        self.pvar_amplitude = pv_amplitude
+        self.pvar_entropy = pv_entropy
+        self.pvar_max_slope = max_slope
+
+        self.pvar_is_sigificant = pv_amplitude > 0.001
+        self.pvar_is_transit_like = slope_percentile_ratio < 0.1  # Conservative limit to make sure we're not removing transits
+
+        if self.pvar_is_sigificant and not self.pvar_is_transit_like:
+            self.flux -= self.pvar_model - 1
+            self.pvar_removed = True
+        else:
+            self.pvar_removed = False
+
+    def calculate_delta_bic(self):
+        def delta_bic(dloglikelihood, d1, d2, n):
+            return dloglikelihood + 0.5 * (d1 - d2) * log(n)
+
+        return delta_bic(self.transit_fit_results['all'].lnldiff[1].sum(), 0, 9,
+                         self.transit_fit_results['all'].time.size)
 
     # FITS output
     # ===========
@@ -471,23 +555,10 @@ class TransitSearch:
 
     # Plotting
     # ========
-    def bplot(plotf: Callable):
-        @wraps(plotf)
-        def wrapper(self, ax=None, *args, **kwargs):
-            if ax is None:
-                fig, ax = subplots(1, 1)
-            else:
-                fig, ax = None, ax
-            try:
-                plotf(self, ax, **kwargs)
-            except ValueError:
-                pass
-            return fig
-        return wrapper
 
     def plot_report(self):
-        fig = figure(figsize=(16, 16))
-        gs = GridSpec(7, 4, figure=fig, height_ratios=(0.7, 1, 1, 1, 1, 1, 0.1))
+        fig = figure(figsize=(16, 17))
+        gs = GridSpec(8, 4, figure=fig, height_ratios=(0.7, 1, 1, 1, 1, 1, 1, 0.1))
         ax_header = subplot(gs[0, :])
         ax_flux = subplot(gs[1:3, :])
         ax_snr = subplot(gs[3, :2])
@@ -496,6 +567,7 @@ class TransitSearch:
         ax_folded = subplot(gs[3, 2:])
         ax_even_odd = subplot(gs[5, 2]), subplot(gs[5, 3])
         ax_per_orbit_lnlike = subplot(gs[5, :2])
+        ax_pvar = subplot(gs[6,:2])
         ax_footer = subplot(gs[-1, :])
 
         self.plot_header(ax_header)
@@ -507,6 +579,7 @@ class TransitSearch:
         self.plot_folded_and_binned_lc(ax_folded)
         self.plot_even_odd(ax_even_odd)
         self.plot_per_orbit_delta_lnlike(ax_per_orbit_lnlike)
+        self.plot_periodic_variability(ax_pvar)
         ax_footer.axhline(lw=20)
 
         ax_snr.set_title('BLS periodogram')
@@ -525,7 +598,7 @@ class TransitSearch:
         ax.axhline(1.0, lw=20)
         ax.text(0.01, 0.77, self.name.replace('_', ' '), size=33, va='top', weight='bold')
         ax.text(0.01, 0.25,
-                       f"SNR {self.snr:5.2f} | Period  {self.period:5.2f} d | Zero epoch {self.t0:10.2f} | Depth {self.bls_result.depth:5.4f} | Duration {24 * self.duration:>4.2f} h",
+                       f"$\Delta$BIC {self.dbic:5.0f} | Period  {self.period:5.2f} d | Zero epoch {self.t0:10.2f} | Depth {self.bls_result.depth:5.4f} | Duration {24 * self.duration:>4.2f} h",
                        va='center', size=18, linespacing=1.75, family='monospace')
         ax.axhline(0.0, lw=8)
         setp(ax, frame_on=False, xticks=[], yticks=[])
@@ -590,38 +663,44 @@ class TransitSearch:
         else:
             pmask = abs(phase) < 1.5 * duration
 
+        if pmask.sum() < 100:
+            alpha = 1
+
         flux_m = flux_m[sids]
         flux_o = model.obs[sids]
-        ax.plot(phase[pmask], flux_o[pmask], '.', alpha=alpha)
-        ax.plot(phase[pmask], flux_m[pmask], 'k')
+        ax.plot(24 * phase[pmask], flux_o[pmask], '.', alpha=alpha)
+        ax.plot(24 * phase[pmask], flux_m[pmask], 'k')
 
-        pb, fb, eb = downsample_time(phase[pmask], flux_o[pmask], phase[pmask].ptp() / nbins)
-        ax.errorbar(pb, fb, eb, fmt='ok')
+        if duration > 1 / 24:
+            pb, fb, eb = downsample_time(phase[pmask], flux_o[pmask], phase[pmask].ptp() / nbins)
+            ax.errorbar(24 * pb, fb, eb, fmt='ok')
+            ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
+        else:
+            ylim = flux_o[pmask].min(), flux_o[pmask].max()
 
-        ax.text(2.5 * hdur[0], flux_m.min(), f'$\Delta$F {1 - flux_m.min():6.4f}', size=10, va='center',
+        ax.text(24 * 2.5 * hdur[0], flux_m.min(), f'$\Delta$F {1 - flux_m.min():6.4f}', size=10, va='center',
                 bbox=dict(color='white'))
         ax.axhline(flux_m.min(), alpha=0.25, ls='--')
 
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)
-        [ax.axvline(hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
+        [ax.axvline(24 * hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
 
-        ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
         ax.autoscale(axis='x', tight='true')
         setp(ax, ylim=ylim, xlabel='Phase [h]', ylabel='Normalised flux')
 
     @bplot
     def plot_folded_and_binned_lc(self, ax=None, nbins: int = 100):
-        p = self.tf_both.parameters
-        zero_epoch, period, duration = p[['tc', 'p', 't14']].iloc[0].copy()
-        phase = self.tf_both.phase
+        tf = self.transit_fit_results['all']
+        zero_epoch, period, duration = tf.parameters[['tc', 'p', 't14']].iloc[0].copy()
+        phase = tf.phase
         sids = argsort(phase)
         phase = phase[sids]
-        flux_o = self.tf_both.obs[sids]
-        flux_m = self.tf_both.model[sids]
+        flux_o = tf.obs[sids]
+        flux_m = tf.model[sids]
 
-        pb, fb, eb = downsample_time(phase, flux_o, period / nbins)
-        _, fob, _ = downsample_time(phase, flux_m, period / nbins)
+        pb, fb, eb = downsample_time(phase, flux_o, phase.ptp() / nbins)
+        _, fob, _ = downsample_time(phase, flux_m, phase.ptp() / nbins)
 
         ax.errorbar(pb, fb, eb)
         ax.plot(pb, fob, 'k')
@@ -664,3 +743,13 @@ class TransitSearch:
         ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
         setp(ax, xlabel='Epoch', ylabel="$\Delta$ log likelihood")
+
+    @bplot
+    def plot_periodic_variability(self, ax):
+        sids = argsort(self.pvar_phase)
+        if self.pvar_removed:
+            ax.plot(self.pvar_phase[sids], self.pvar_model[sids])
+        else:
+            ax.plot(self.pvar_phase[sids], self.pvar_model[sids], '--', alpha=0.5)
+        ax.autoscale(axis='x', tight=True)
+        setp(ax, xlabel='Phase', ylabel='Normalized flux')

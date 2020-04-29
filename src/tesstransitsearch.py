@@ -18,49 +18,83 @@ from pathlib import Path
 from typing import Union, List, Optional
 
 from astropy.io.fits import Card, getheader, Header
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clipped_stats, mad_std
 from astropy.table import Table
 from matplotlib.artist import setp
-from numpy import median, isfinite, argsort, ndarray, unique
+from numpy import median, isfinite, argsort, ndarray, unique, concatenate
 from pytransit.lpf.tesslpf import downsample_time
 from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 
 from .transitsearch import TransitSearch
+from .plots import bplot
 
 
 class TESSTransitSearch(TransitSearch):
-    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, snr_limit: float = 3,
+    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, bic_limit: float = 5,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
+
+        self.bjdrefi: int = 2457000
         self.sectors: List = []
+        self.files: List = []
+        self.sector = None
         self._h0: Optional[Header] = None
         self._h1: Optional[Header] = None
+
+        self.time_raw: Optional[ndarray] = None
+        self.time_detrended: Optional[ndarray] = None
+        self.time_flattened: Optional[ndarray] = None
+
+        self.flux_raw: Optional[ndarray] = None
+        self.flux_detrended: Optional[ndarray] = None
+        self.flux_flattened: Optional[ndarray] = None
+
         self._flux_sap: Optional[ndarray] = None
         self._flux_pdcsap: Optional[ndarray] = None
-        super().__init__(pmin, pmax, nper, snr_limit, nsamples, exptime, use_tqdm, use_opencl)
+        super().__init__(pmin, pmax, nper, bic_limit, nsamples, exptime, use_tqdm, use_opencl)
 
     # Data input
     # ==========
     # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
     # minimum any subclass needs to implement for the class to function.
     #
-    def _reader(self, filename: Union[Path, str]):
-        filename = Path(filename).resolve()
-        tb = Table.read(filename)
-        time = tb['TIME'].data.astype('d') + tb.meta['BJDREFI']
-        flux = tb['PDCSAP_FLUX'].data.astype('d')
-        ferr = tb['PDCSAP_FLUX_ERR'].data.astype('d')
-        mask = isfinite(time) & isfinite(flux) & isfinite(ferr)
-        time, flux, ferr = time[mask], flux[mask], ferr[mask]
-        ferr /= median(flux)
-        flux /= median(flux)
-        self._h0 = getheader(filename, 0)
-        self._h1 = getheader(filename, 1)
-        self._flux_pdcsap = flux
-        self._flux_sap = tb['SAP_FLUX'].data.astype('d')[mask]
-        self._flux_sap /= median(self._flux_sap)
+    def _reader(self, files: Union[Path, str, List[Path]]):
+        if isinstance(files, Path) or isinstance(files, str):
+            files = [files]
+
+        times, fluxes, ferrs, f2, t2 = [], [], [], [], []
+        for filename in files:
+            filename = Path(filename).resolve()
+
+            tb = Table.read(filename)
+            time = tb['TIME'].data.astype('d') + tb.meta['BJDREFI']
+            flux = tb['PDCSAP_FLUX'].data.astype('d')
+            ferr = tb['PDCSAP_FLUX_ERR'].data.astype('d')
+            mask = isfinite(time) & isfinite(flux) & isfinite(ferr)
+            time, flux, ferr = time[mask], flux[mask], ferr[mask]
+            ferr /= median(flux)
+            flux /= median(flux)
+            if self._h0 is None:
+                self._h0 = getheader(filename, 0)
+                self._h1 = getheader(filename, 1)
+                self.teff = self._h0['TEFF']
+
+            times.append(time)
+            fluxes.append(flux)
+            ferrs.append(ferr)
+            f2.append(tb['SAP_FLUX'].data.astype('d')[mask])
+            f2[-1] /= median(f2[-1])
+
+        time = concatenate(times)
+        flux = concatenate(fluxes)
+        ferr = concatenate(ferrs)
+
+        self.time_detrended = time
+        self.time_raw = time
+        self.flux_detrended = flux
+        self.flux_raw = concatenate(f2)
+
         name = self._h0['OBJECT'].replace(' ', '_')
-        self.teff = self._h0['TEFF']
         return name, time, flux, ferr
 
     # FITS file output
@@ -95,41 +129,34 @@ class TESSTransitSearch(TransitSearch):
     # customised for the data at hand. For example, you can plot the detrended and raw light curves
     # separately in the `plot_flux_vs_time` method rather than just the flux used to do the search.
 
+    @bplot
     def plot_flux_vs_time(self, ax=None):
-        tref = 2457000
+        rstd = mad_std(self.flux_raw)
+        dstd = mad_std(self.flux_detrended)
+        offset = 4 * rstd + 4 * dstd
 
-        ax.text(0.013, 0.96, "Raw and detrended flux", size=15, va='top', transform=ax.transAxes,
-                bbox={'facecolor': 'w', 'edgecolor': 'w'})
+        ax.plot(self.time_raw - self.bjdrefi, self.flux_raw, label='raw')
+        ax.plot(self.time_detrended - self.bjdrefi, self.flux_detrended + offset, label='detrended')
 
-        transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
-        [ax.axvline(t - tref, ls='--', alpha=0.5, lw=1) for t in transits]
+        if hasattr(self, 't0'):
+            transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
+            [ax.axvline(t - self.bjdrefi, ls='--', alpha=0.5, lw=1) for t in transits]
 
-        fsap = self._flux_sap
-        fpdc = self._flux_pdcsap
-        fpdc = fpdc + 1 - fpdc.min() + 3 * fsap.std()
+            def time2epoch(x):
+                return (x + self.bjdrefi - self.t0) / self.period
 
-        ax.plot(self.time - tref, fpdc, label='PDC')
-        tb, fb, eb = downsample_time(self.time - tref, fpdc, 1 / 24)
-        ax.plot(tb, fb, 'k', lw=1)
+            def epoch2time(x):
+                return self.t0 - self.bjdrefi + x * self.period
 
-        ax.plot(self.time - tref, fsap, label='SAP')
-        tb, fb, eb = downsample_time(self.time - tref, fsap, 1 / 24)
-        ax.plot(tb, fb, 'k', lw=1)
-
-        def time2epoch(x):
-            return (x + tref - self.t0) / self.period
-
-        def epoch2time(x):
-            return self.t0 - tref + x * self.period
-
-        secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
-        secax.set_xlabel('Epoch')
+            secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
+            secax.set_xlabel('Epoch')
 
         ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
-        ax.set_ylim((ax.get_ylim()[0], median(fpdc) + 5 * sigma_clipped_stats(fpdc)[2]))
-        setp(ax, xlabel=f'Time - {tref} [BJD]', ylabel='Normalized flux')
+        setp(ax, xlabel=f'Time - {self.bjdrefi} [BJD]', ylabel='Normalized flux',
+             ylim=(1 - 5 * rstd, 1 + offset + 5 * dstd))
 
+    @bplot
     def plot_flux_vs_phase(self, ax=None, n: float = 1, nbin: int = 100):
         fsap = self._flux_sap
         fpdc = self._flux_pdcsap
