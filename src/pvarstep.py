@@ -13,7 +13,7 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from logging import info
+from logging import getLogger
 
 from matplotlib.pyplot import setp
 from numba import njit
@@ -24,6 +24,7 @@ from scipy.interpolate import interp1d
 from src.otsstep import OTSStep
 from src.plots import bplot
 
+logger = getLogger("pvar-step")
 
 @njit
 def running_median(xs, ys, width, nbin):
@@ -42,7 +43,7 @@ def running_median(xs, ys, width, nbin):
 
 class PVarStep(OTSStep):
     def __call__(self):
-        info("Possibly maybe perhaps removing a periodic signal")
+        logger.info("Possibly maybe perhaps removing a periodic signal")
 
         phase = fold(self.ts.time, self.ts.ls.period)
         bp, bf = running_median(phase, self.ts.flux, 0.05, 100)

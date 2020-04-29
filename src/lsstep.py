@@ -23,7 +23,7 @@ from numpy import linspace, argmax
 from .otsstep import OTSStep
 from .plots import bplot
 
-logger = getLogger("lomb-scargle")
+logger = getLogger("lomb-scargle-step")
 
 class LombScargleStep(OTSStep):
     """Lomb-Scargle step.

@@ -13,7 +13,7 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from logging import info
+from logging import getLogger
 from typing import Optional
 
 from astropy.io.fits import HDUList, Card
@@ -24,6 +24,7 @@ from scipy.optimize import minimize
 
 from .otsstep import OTSStep
 
+logger = getLogger("celerite-step")
 
 class CeleriteStep(OTSStep):
     def __init__(self, ts):
@@ -34,7 +35,7 @@ class CeleriteStep(OTSStep):
         self.period = None
 
     def __call__(self, period: Optional[float] = None):
-        info("Running Celerite")
+        logger.info("Running Celerite")
         assert hasattr(self.ts, 'ls'), "Celerite step requires a prior Lomb-Scargle step"
         self.period = period if period is not None else self.ts.ls.period
 

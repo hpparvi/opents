@@ -14,7 +14,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from collections import namedtuple
-from logging import info
+from logging import getLogger
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +34,9 @@ from scipy.interpolate import interp1d
 
 from .otsstep import OTSStep
 from .plots import bplot
+
+logger = getLogger("transit-fit-step")
+
 
 @njit(fastmath=True)
 def sine_model(time, period, phase, amplitudes):
@@ -143,7 +146,7 @@ class TransitFitStep(OTSStep):
         self.depth = None       # Best-fit depth
 
     def __call__(self, npop: int = 30, de_niter: int = 1000, mcmc_niter: int = 100, mcmc_repeats: int = 2, initialize_only: bool = False):
-        info(f"Fitting {self.mode} transits")
+        logger.info(f"Fitting {self.mode} transits")
         self.ts.transit_fits[self.mode] = self
 
         epochs = epoch(self.ts.time, self.ts.zero_epoch, self.ts.period)

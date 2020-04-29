@@ -25,7 +25,7 @@ from pytransit.orbits import epoch
 from .otsstep import OTSStep
 from .plots import bplot
 
-logger = getLogger("bls")
+logger = getLogger("bls-step")
 
 class BLSStep(OTSStep):
     def __init__(self, ts):

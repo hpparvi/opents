@@ -123,8 +123,8 @@ class TransitSearch:
         self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  '))
         self.tf_odd  = self.register_step(TransitFitStep(self, 'odd', ' Odd tr. fit results  '))
 
-    def update_data(self, time: ndarray, flux: ndarray, ferr: ndarray):
-        self._data.update(time, flux, ferr)
+    def update_data(self, step: str, time: ndarray, flux: ndarray, ferr: ndarray):
+        self._data.update(step, time, flux, ferr)
 
     def read_data(self, filename: Path):
         name, time, flux, ferr = self._reader(filename)
@@ -181,7 +181,9 @@ class TransitSearch:
         None
         """
         self.planet += 1
-        flux = self.flux[self.transit_fit_masks['all']] / self.transit_fit_results['all'].transit
+        mask = self.transit_fits['all'].mask
+        flux = self.flux.copy()
+        flux[mask] /= self.transit_fits['all'].ftra
         self.update_data(f'Removed planet {self.planet - 1}', self.time, flux, self.ferr)
 
     # FITS output
