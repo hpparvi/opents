@@ -13,11 +13,11 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+from logging import info
 from pathlib import Path
 from typing import Union, List, Optional
 
-from astropy.io.fits import Card, getheader, Header
+from astropy.io.fits import Card, getheader, Header, HDUList
 from astropy.stats import sigma_clipped_stats, mad_std
 from astropy.table import Table
 from matplotlib.artist import setp
@@ -30,6 +30,19 @@ from .transitsearch import TransitSearch
 from .plots import bplot
 
 
+def read_data_directory(ddir: Path, tic: int = None, tic_pattern: str = '*'):
+    if tic is not None:
+        tic_pattern = f'*{tic}*'
+    files = sorted(ddir.glob(f'tess*-s*-{tic_pattern}-*s_lc.fits'))
+    tic_files = {}
+    for f in files:
+        tic = int(f.name.split('-')[2])
+        if not tic in tic_files:
+            tic_files[tic] = []
+        tic_files[tic].append(f)
+    return tic_files
+
+
 class TESSTransitSearch(TransitSearch):
     def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, bic_limit: float = 5,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
@@ -37,7 +50,6 @@ class TESSTransitSearch(TransitSearch):
         self.bjdrefi: int = 2457000
         self.sectors: List = []
         self.files: List = []
-        self.sector = None
         self._h0: Optional[Header] = None
         self._h1: Optional[Header] = None
 
@@ -49,8 +61,6 @@ class TESSTransitSearch(TransitSearch):
         self.flux_detrended: Optional[ndarray] = None
         self.flux_flattened: Optional[ndarray] = None
 
-        self._flux_sap: Optional[ndarray] = None
-        self._flux_pdcsap: Optional[ndarray] = None
         super().__init__(pmin, pmax, nper, bic_limit, nsamples, exptime, use_tqdm, use_opencl)
 
     # Data input
@@ -95,6 +105,9 @@ class TESSTransitSearch(TransitSearch):
         self.flux_raw = concatenate(f2)
 
         name = self._h0['OBJECT'].replace(' ', '_')
+
+        info(f"Target {self._h0['OBJECT']}")
+        info(f"Read {len(files)} sectors, {time.size} points covering {time.ptp():.2f} days")
         return name, time, flux, ferr
 
     # FITS file output
@@ -106,6 +119,15 @@ class TESSTransitSearch(TransitSearch):
     # Here we override the method to add the information about the star available in the SPOC TESS light
     # curve file, and the method to add the CDPP, variability, and crowding estimates from the SPOC TESS
     # light curve file.
+    def _cf_add_summary_statistics(self, hdul):
+        super()._cf_add_summary_statistics(hdul)
+        h = hdul[0].header
+        keys = "cdpp0_5 cdpp1_0 cdpp2_0 crowdsap flfrcsap pdcvar".upper().split()
+        for k in keys:
+            h.append(Card(k, self._h1[k], self._h1.comments[k]), bottom=True)
+
+    def _cf_post_setup_hook(self, hdul: HDUList):
+        self._cf_add_stellar_info(hdul)
 
     def _cf_add_stellar_info(self, hdul):
         h = hdul[0].header
@@ -115,13 +137,6 @@ class TESSTransitSearch(TransitSearch):
         keys = 'ticid tessmag ra_obj dec_obj teff logg radius'.upper().split()
         for k in keys:
             h.append(Card(k, self._h0[k], self._h0.comments[k]), bottom=True)
-
-    def _cf_add_summary_statistics(self, hdul):
-        super()._cf_add_summary_statistics(hdul)
-        h = hdul[0].header
-        keys = "cdpp0_5 cdpp1_0 cdpp2_0 crowdsap flfrcsap pdcvar".upper().split()
-        for k in keys:
-            h.append(Card(k, self._h1[k], self._h1.comments[k]), bottom=True)
 
     # Plotting
     # ========
@@ -136,17 +151,17 @@ class TESSTransitSearch(TransitSearch):
         offset = 4 * rstd + 4 * dstd
 
         ax.plot(self.time_raw - self.bjdrefi, self.flux_raw, label='raw')
-        ax.plot(self.time_detrended - self.bjdrefi, self.flux_detrended + offset, label='detrended')
+        ax.plot(self.time_detrended - self.bjdrefi, self.flux + offset, label='detrended')
 
-        if hasattr(self, 't0'):
-            transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
+        if self.zero_epoch is not None:
+            transits = self.zero_epoch + unique(epoch(self.time, self.zero_epoch, self.period)) * self.period
             [ax.axvline(t - self.bjdrefi, ls='--', alpha=0.5, lw=1) for t in transits]
 
             def time2epoch(x):
-                return (x + self.bjdrefi - self.t0) / self.period
+                return (x + self.bjdrefi - self.zero_epoch) / self.period
 
             def epoch2time(x):
-                return self.t0 - self.bjdrefi + x * self.period
+                return self.zero_epoch - self.bjdrefi + x * self.period
 
             secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
             secax.set_xlabel('Epoch')
@@ -160,11 +175,11 @@ class TESSTransitSearch(TransitSearch):
     def plot_flux_vs_phase(self, ax=None, n: float = 1, nbin: int = 100):
         fsap = self._flux_sap
         fpdc = self._flux_pdcsap
-        phase = (fold(self.time, n * self.period, self.t0, 0.5 - ((n - 1) * 0.25)) - 0.5) * n * self.period
+        phase = (fold(self.time, n * self.period, self.zero_epoch, 0.5 - ((n - 1) * 0.25)) - 0.5) * n * self.period
         sids = argsort(phase)
         pb, fb, eb = downsample_time(phase[sids], fpdc[sids], phase.ptp() / nbin)
         ax.errorbar(pb, fb, eb, fmt='.')
-        phase = (fold(self.time, n * self.period, self.t0, 0.5 - ((n - 1) * 0.25)) - 0.5) * n * self.period
+        phase = (fold(self.time, n * self.period, self.zero_epoch, 0.5 - ((n - 1) * 0.25)) - 0.5) * n * self.period
         sids = argsort(phase)
         pb, fb, eb = downsample_time(phase[sids], fsap[sids], phase.ptp() / nbin)
         ax.errorbar(pb, fb, eb, fmt='.')

@@ -14,156 +14,56 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from collections import namedtuple
-from functools import wraps
 from pathlib import Path
-from typing import Iterable, Callable
-from logging import info, warning, error
+from logging import info
 
-import astropy.units as u
-import pandas as pd
 from astropy.io.fits import HDUList, PrimaryHDU, Card
-from astropy.stats import sigma_clipped_stats, mad_std
-from astropy.table import Table
-from astropy.timeseries import BoxLeastSquares, LombScargle
-from celerite import GP
-from celerite.terms import SHOTerm
-from matplotlib.axis import Axis
+from astropy.stats import mad_std
 from matplotlib.gridspec import GridSpec
-from matplotlib.pyplot import subplots, setp, errorbar, figure, subplot
-from numpy import linspace, array, argmax, ones, floor, log, pi, sin, argsort, unique, median, zeros, atleast_2d, \
-    ndarray, squeeze, percentile, inf, asarray, sqrt, arcsin, exp, isfinite, zeros_like, fabs, diff
-from pytransit import BaseLPF, QuadraticModelCL, QuadraticModel
-from pytransit.lpf.loglikelihood import CeleriteLogLikelihood
+from matplotlib.pyplot import setp, figure, subplot
+from numpy import log, pi, argsort, unique, ndarray, percentile, array
 from pytransit.orbits import epoch
-from pytransit.orbits.orbits_py import impact_parameter_ec
-from pytransit.param import LParameter, UniformPrior as UP
 from pytransit.utils.misc import fold
 from pytransit.lpf.tesslpf import downsample_time
-from scipy.interpolate import interp1d
 
-from scipy.optimize import minimize
+from typing import Optional, List, Union
 
-from typing import Optional
-from numba import njit
-
+from .celeritestep import CeleriteStep
 from .plots import bplot
+from .blsstep import BLSStep
+from .lsstep import LombScargleStep
+from .pvarstep import PVarStep
+from .tfstep import TransitFitStep
 
 
-@njit(fastmath=True)
-def sine_model(time, period, phase, amplitudes):
-    npv = period.size
-    npt = time.size
-    nsn = amplitudes.shape[1]
+class TSData:
+    def __init__(self, time: ndarray, flux: ndarray, ferr: ndarray):
+        self._steps: List = ['init']
+        self._time: List = [time]
+        self._flux: List = [flux]
+        self._ferr: List = [ferr]
 
-    bl = zeros((npv, npt))
-    for i in range(npv):
-        for j in range(nsn):
-            bl[i, :] += amplitudes[i, j] * sin(2 * pi * (time - phase[i] * period[i]) / (period[i] / (j + 1)))
-    return bl
+    def update(self, step: str, time: ndarray, flux: ndarray, ferr: ndarray):
+        self._steps.append(step)
+        self._time.append(time)
+        self._flux.append(flux)
+        self._ferr.append(ferr)
 
+    @property
+    def step(self) -> ndarray:
+        return self._steps[-1]
 
-@njit
-def running_median(xs, ys, width, nbin):
-    bx = linspace(0, 1, nbin)
-    by = zeros_like(bx)
-    hwidth = 0.5 * width
-    for i, x in enumerate(bx):
-        m = fabs(xs - x) < hwidth
-        if x < hwidth:
-            m |= xs > x + 1 - hwidth
-        if x > 1 - hwidth:
-            m |= xs < x - 1 + hwidth
-        by[i] = median(ys[m])
-    return bx, by
+    @property
+    def time(self) -> ndarray:
+        return self._time[-1]
 
+    @property
+    def flux(self) -> ndarray:
+        return self._flux[-1]
 
-class SineBaseline:
-    def __init__(self, lpf, name: str = 'sinbl', n: int = 1, lcids=None):
-        self.name = name
-        self.lpf = lpf
-        self.n = n
-
-        if lpf.lcids is None:
-            raise ValueError('The LPF data needs to be initialised before initialising LinearModelBaseline.')
-
-        self.init_data(lcids)
-        self.init_parameters()
-
-    def init_data(self, lcids=None):
-        self.time = self.lpf.timea - self.lpf._tref
-
-    def init_parameters(self):
-        """Baseline parameter initialisation.
-        """
-        fptp = self.lpf.ofluxa.ptp()
-        bls = []
-        bls.append(LParameter(f'c_sin', f'sin phase', '', UP(0.0, 1.0), bounds=(0, 1)))
-        for i in range(self.n):
-            bls.append(LParameter(f'a_sin_{i}', f'sin {i} amplitude', '', UP(0, fptp), bounds=(0, inf)))
-        self.lpf.ps.thaw()
-        self.lpf.ps.add_global_block(self.name, bls)
-        self.lpf.ps.freeze()
-        self.pv_slice = self.lpf.ps.blocks[-1].slice
-        self.pv_start = self.lpf.ps.blocks[-1].start
-        setattr(self.lpf, f"_sl_{self.name}", self.pv_slice)
-        setattr(self.lpf, f"_start_{self.name}", self.pv_start)
-
-    def __call__(self, pvp, bl: Optional[ndarray] = None):
-        pvp = atleast_2d(pvp)
-        if bl is None:
-            bl = ones((pvp.shape[0], self.time.size))
-        else:
-            bl = atleast_2d(bl)
-
-        bl += sine_model(self.time,
-                         period=pvp[:, 1],
-                         phase=pvp[:, self.pv_start],
-                         amplitudes=pvp[:, self.pv_start + 1:])
-        return squeeze(bl)
-
-
-class BLSResult:
-    def __init__(self, bls, ts):
-        self.bls = bls
-        self.ts = ts
-        i = argmax(bls.depth_snr)
-        self.periods = self.bls.period
-        self.depth_snr = self.bls.depth_snr
-        self.snr = self.depth_snr[i]
-        self.period = bls.period[i].value
-        self.depth = bls.depth[i]
-        self.duration = bls.duration[i].value
-
-        t0 = bls.transit_time[i].value
-        ep = epoch(self.ts.time.min(), t0, self.period)
-        self.t0 = t0 + ep * self.period
-
-
-class LombScargleResult:
-    def __init__(self, periods, powers):
-        self.periods = asarray(periods)
-        self.powers = asarray(powers)
-        imax = argmax(powers)
-        self.period = self.periods[imax]
-        self.power = self.powers[imax]
-
-    def __repr__(self):
-        return f"LombScargleResult({self.periods.__repr__()}, {self.powers.__repr__()})"
-
-    def __str__(self):
-        return f"Lomb-Scargle Result\n    Period {self.period:>8.4f}\n    Power  {self.power:>8.4f}"
-
-
-TransitFitResult = namedtuple('TransitFitResult', 'parameters time epoch phase obs model transit lnldiff')
-
-
-class SearchLPF(BaseLPF):
-    # def _init_lnlikelihood(self):
-    #    self._add_lnlikelihood_model(CeleriteLogLikelihood(self))
-
-    def _init_baseline(self):
-        self._add_baseline_model(SineBaseline(self, n=1))
+    @property
+    def ferr(self) -> ndarray:
+        return self._ferr[-1]
 
 
 class TransitSearch:
@@ -191,244 +91,125 @@ class TransitSearch:
         self.gp_result = None
         self.gp_periodicity = None
 
-        self.time: Optional[ndarray] = None
-        self.flux: Optional[ndarray] = None
-        self.ferr: Optional[ndarray] = None
-        self.phase: Optional[ndarray] = None
+        self._data = None
+        self._steps = []
 
-        self.teff: Optional[float] = None
+        self.teff: Optional[float] = None          # Host star effective temperature
         self.period: Optional[float] = None        # Orbital period
         self.zero_epoch: Optional[float] = None    # Zero epoch
         self.duration: Optional[float] = None      # Transit duration in days
+        self.depth: Optional[float] = None         # Transit depth
         self.snr: Optional[float] = None           # Transit signal-to-noise ratio
+        self.dbic: Optional[float] = None          # Delta BIC
 
-    def save_fits(self, savedir: Path):
+        self.initialize_steps()
+
+    def register_step(self, step):
+        self._steps.append(step)
+        return step
+
+    def initialize_steps(self):
+        """Initialize the pipeline steps.
+
+        Returns
+        -------
+        None
+        """
+        self.ls      = self.register_step(LombScargleStep(self))
+        self.cvar    = self.register_step(CeleriteStep(self))
+        self.pvar    = self.register_step(PVarStep(self))
+        self.bls     = self.register_step(BLSStep(self))
+        self.tf_all  = self.register_step(TransitFitStep(self, 'all', ' Transit fit results  '))
+        self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  '))
+        self.tf_odd  = self.register_step(TransitFitStep(self, 'odd', ' Odd tr. fit results  '))
+
+    def update_data(self, time: ndarray, flux: ndarray, ferr: ndarray):
+        self._data.update(time, flux, ferr)
+
+    def read_data(self, filename: Path):
+        name, time, flux, ferr = self._reader(filename)
+        self._data = TSData(time, flux, ferr)
+        self.name = name
+
+    def _reader(self, filename: Path):
         raise NotImplementedError
+
+    @property
+    def time(self) -> ndarray:
+        return self._data.time
+
+    @property
+    def flux(self) -> ndarray:
+        return self._data.flux
+
+    @property
+    def ferr(self) -> ndarray:
+        return self._data.ferr
+
+    @property
+    def phase(self) -> Optional[ndarray]:
+        if self.zero_epoch is not None:
+            return fold(self.time, self.period, self.zero_epoch, 0.5) * self.period
+        else:
+            return None
+
+    def update_ephemeris(self, zero_epoch, period, duration, depth: Optional[float] = None):
+        self.zero_epoch = zero_epoch
+        self.period = period
+        self.duration = duration
+        self.depth = depth if depth is not None else self.depth
 
     @property
     def basename(self):
         raise NotImplementedError
 
     def run(self):
-        info("Running Lomb-Scargle")
-        self.run_lomb_scargle()
-        info("Running Celerite")
-        self.fit_gp_periodicity()
-        info("Possibly maybe perhaps removing a periodic signal")
-        self.possibly_remove_periodic_variability()
-        info("Running BLS")
-        self.run_bls()
-        info("Fitting all transits")
-        self.fit_transit(mode='all')
-        self.dbic = self.calculate_delta_bic()
-        info("Fitting odd transits")
-        self.fit_transit(mode='odd')
-        info("Fitting even transits")
-        self.fit_transit(mode='even')
+        """Run all the steps in the pipeline.
+
+        Returns
+        -------
+        None
+        """
+        for step in self._steps:
+            step()
 
     def next_planet(self):
+        """Remove the current best-fit planet signal and prepare to search for another.
+
+        Returns
+        -------
+        None
+        """
         self.planet += 1
-        self.flux[self.transit_fit_masks['all']] /= self.transit_fit_results['all'].transit
-        self.bls = None
-        self.bls_result = None
-        self.ls = None
-        self.ls_result = None
-        self.transit_fits = {}
-        self.transit_fit_results = {}
-        self.transit_fit_masks = {}
-        self.gp_result = None
-        self.gp_periodicity = None
-        self.period: Optional[float] = None        # Orbital period
-        self.zero_epoch: Optional[float] = None    # Zero epoch
-        self.duration: Optional[float] = None      # Transit duration in days
-        self.snr: Optional[float] = None           # Transit signal-to-noise ratio
-
-    def update_ephemeris(self, zero_epoch, period, duration):
-        self.zero_epoch = zero_epoch
-        self.period = period
-        self.duration = duration
-        self.phase = fold(self.time, self.period, self.zero_epoch, 0.5) * self.period
-
-    def read_data(self, filename: Path):
-        name, time, flux, ferr = self._reader(filename)
-        self.name = name
-        self._setup_data(time, flux, ferr)
-
-    def _setup_data(self, time, flux, ferr):
-        self.time = time
-        self.flux = flux
-        self.ferr = ferr
-
-    def _reader(self, filename: Path):
-        raise NotImplementedError
-
-    def run_lomb_scargle(self):
-        self.ls = LombScargle(self.time, self.flux)
-        freq = linspace(1 / self.pmax, 1 / self.pmin, 1000)
-        power = self.ls.power(freq)
-        self.ls_result = LombScargleResult(1 / freq, power)
-
-    def run_bls(self):
-        periods = linspace(self.pmin, self.pmax, self.nper)
-        durations = array([0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]) / 24
-        self.bls = BoxLeastSquares(self.time * u.day, self.flux, self.ferr)
-        self.bls_result = r = BLSResult(self.bls.power(periods, durations, objective='snr'), self)
-        self.update_ephemeris(r.t0, r.period, r.duration)
-        self.snr = self.bls_result.snr
-
-    def fit_transit(self, npop: int = 30, de_niter: int = 1000, mcmc_niter: int = 100, mcmc_repeats: int = 2,
-                    mode: str = 'all', initialize_only: bool = False):
-        epochs = epoch(self.time, self.bls_result.t0, self.bls_result.period)
-        if mode == 'all':
-            mask = ones(self.time.size, bool)
-        elif mode == 'even':
-            mask = epochs % 2 == 0
-        elif mode == 'odd':
-            mask = epochs % 2 == 1
-        else:
-            raise NotImplementedError
-
-        mask &= abs(self.phase - 0.5*self.period) < 4 * 0.5 * self.duration
-
-        self.transit_fit_masks[mode] = mask
-
-        epochs = epochs[mask]
-        time = self.time[mask]
-        flux = self.flux[mask]
-
-        tref = floor(time.min())
-        tm = QuadraticModelCL(klims=(0.01, 0.60)) if self.use_opencl else QuadraticModel(interpolate=False)
-        lpf = SearchLPF('transit_fit', ['Kepler'], times=time, fluxes=flux, tm=tm,
-                        nsamples=self.nsamples, exptimes=self.exptime, tref=tref)
-        self.transit_fits[mode] = lpf
-
-        if mode == 'all':
-            lpf.set_prior('tc', 'NP', self.zero_epoch, 0.01)
-            lpf.set_prior('p', 'NP', self.period, 0.01)
-            lpf.set_prior('k2', 'UP', 0.5 * self.bls_result.depth, 2 * self.bls_result.depth)
-        else:
-            priorp = self.transit_fit_results['all'].parameters
-            lpf.set_prior('tc', 'NP', priorp.tc.med, priorp.tc.err)
-            lpf.set_prior('p', 'NP', priorp.p.med, priorp.p.err)
-            lpf.set_prior('k2', 'UP', max(0.01**2, 0.5 * priorp.k2.med), max(0.08**2, min(0.6**2, 2 * priorp.k2.med)))
-            lpf.set_prior('q1_Kepler', 'NP', priorp.q1_Kepler.med, priorp.q1_Kepler.err)
-            lpf.set_prior('q2_Kepler', 'NP', priorp.q2_Kepler.med, priorp.q2_Kepler.err)
-
-        if self.teff is not None:
-            ldcs = Table.read(Path(__file__).parent / "data/ldc_table.fits").to_pandas()
-            ip = interp1d(ldcs.teff, ldcs[['q1', 'q2']].T)
-            q1, q2 = ip(self.teff)
-            lpf.set_prior('q1_Kepler', 'NP', q1, 1e-5)
-            lpf.set_prior('q2_Kepler', 'NP', q2, 1e-5)
-
-        if initialize_only:
-            return
-        else:
-            lpf.optimize_global(niter=de_niter, npop=npop, use_tqdm=self.use_tqdm, plot_convergence=False)
-            lpf.sample_mcmc(mcmc_niter, repeats=mcmc_repeats, use_tqdm=self.use_tqdm)
-            df = lpf.posterior_samples(derived_parameters=True)
-            df = pd.DataFrame((df.median(), df.std()), index='med err'.split())
-            pv = lpf.posterior_samples(derived_parameters=False).median().values
-            phase = fold(time, pv[1], pv[0], 0.5) * pv[1] - 0.5 * pv[1]
-            model = lpf.flux_model(pv)
-            transit = lpf.transit_model(pv)
-
-            # Calculate the per-orbit log likelihood differences
-            # --------------------------------------------------
-            ues = unique(epochs)
-            lnl = zeros(ues.size)
-            err = 10 ** pv[7]
-
-            def lnlike_normal(o, m, e):
-                npt = o.size
-                return -npt * log(e) - 0.5 * npt * log(2. * pi) - 0.5 * sum((o - m) ** 2 / e ** 2)
-
-            for i, e in enumerate(ues):
-                m = epochs == e
-                lnl[i] = lnlike_normal(flux[m], model[m], err) - lnlike_normal(flux[m], 1.0, err)
-
-            self.transit_fit_results[mode] = res = TransitFitResult(df, time, epochs, phase, flux, model, transit,
-                                                                    (ues, lnl))
-            if mode == 'all':
-                self.t0 = res.parameters.tc[0]
-                self.period = res.parameters.p[0]
-                self.duration = res.parameters.t14[0]
-            return res
-
-    def fit_gp_periodicity(self, period: float = None):
-        period = period if period is not None else self.ls_result.period
-
-        gp = GP(SHOTerm(log(self.flux.var()), log(10), log(2 * pi / period)), mean=1.)
-        gp.freeze_parameter('kernel:log_omega0')
-        gp.compute(self.time, yerr=self.ferr)
-
-        def minfun(pv):
-            gp.set_parameter_vector(pv)
-            gp.compute(self.time, yerr=self.ferr)
-            return -gp.log_likelihood(self.flux)
-
-        res = minimize(minfun, gp.get_parameter_vector(), jac=False, method='powell')
-        self.gp_result = res
-        self.gp_periodicity = res.x
-        self.gp_prediction = gp.predict(self.flux, return_cov=False)
-        #self.flux -= self.gp_prediction - 1.
-
-    def possibly_remove_periodic_variability(self):
-        phase = fold(self.time, self.ls_result.period)
-        bp, bf = running_median(phase, self.flux, 0.05, 100)
-        pv = interp1d(bp, bf)(phase)
-
-        df = abs(diff(pv) / diff(self.time))
-        ps = percentile(df, [80, 99.5])
-
-        pv_amplitude = bf.ptp()
-        bfn = -bf
-        bfn -= bfn.min() - 1e-12
-        bfn /= bfn.sum()
-        pv_entropy = -(bfn * log(bfn)).sum()
-
-        max_slope = df.max()
-        slope_percentile_ratio = ps[0] / ps[1]
-
-        self.pvar_phase = phase
-        self.pvar_model = pv
-        self.pvar_spr = slope_percentile_ratio
-        self.pvar_amplitude = pv_amplitude
-        self.pvar_entropy = pv_entropy
-        self.pvar_max_slope = max_slope
-
-        self.pvar_is_sigificant = pv_amplitude > 0.001
-        self.pvar_is_transit_like = slope_percentile_ratio < 0.1  # Conservative limit to make sure we're not removing transits
-
-        if self.pvar_is_sigificant and not self.pvar_is_transit_like:
-            self.flux -= self.pvar_model - 1
-            self.pvar_removed = True
-        else:
-            self.pvar_removed = False
-
-    def calculate_delta_bic(self):
-        def delta_bic(dloglikelihood, d1, d2, n):
-            return dloglikelihood + 0.5 * (d1 - d2) * log(n)
-
-        return delta_bic(self.transit_fit_results['all'].lnldiff[1].sum(), 0, 9,
-                         self.transit_fit_results['all'].time.size)
+        flux = self.flux[self.transit_fit_masks['all']] / self.transit_fit_results['all'].transit
+        self.update_data(f'Removed planet {self.planet - 1}', self.time, flux, self.ferr)
 
     # FITS output
     # ===========
+    def save_fits(self, savedir: Union[Path, str]):
+        """Save the search results into a FITS file.
+
+        Parameters
+        ----------
+        savedir: Path or str
+            Directory to save the results in.
+
+        Returns
+        -------
+        None
+        """
+        hdul = self._create_fits()
+        hdul.writeto(Path(savedir) / f"{self.name}_{self.planet}.fits", overwrite=True)
+
     def _create_fits(self):
         hdul = HDUList(PrimaryHDU())
         h = hdul[0].header
         h.append(Card('name', self.name))
         self._cf_pre_hook(hdul)
         self._cf_add_setup_info(hdul)
-        self._cf_add_stellar_info(hdul)
+        self._cf_post_setup_hook(hdul)
         self._cf_add_summary_statistics(hdul)
-        self._cf_add_bls_results(hdul)
-        self._cf_add_ls_results(hdul)
-        self._cf_add_celerite_results(hdul)
-        self._cf_add_transit_fit_results(hdul, 'all', ' Transit fit results  ')
-        self._cf_add_transit_fit_results(hdul, 'even', ' Even tr. fit results  ')
-        self._cf_add_transit_fit_results(hdul, 'odd', ' Odd tr. fit results  ')
+        self._cf_add_pipeline_steps(hdul)
         self._cf_post_hook(hdul)
         return hdul
 
@@ -449,7 +230,7 @@ class TransitSearch:
         h.append(Card('ddur', 0, 'Duration grid step size [d]'), bottom=True)
         h.append(Card('ndur', 0, 'Duration grid size'), bottom=True)
 
-    def _cf_add_stellar_info(self, hdul: HDUList):
+    def _cf_post_setup_hook(self, hdul: HDUList):
         pass
 
     def _cf_add_summary_statistics(self, hdul: HDUList):
@@ -465,97 +246,15 @@ class TransitSearch:
         for p, pk, pv in zip(ps, pks, pvs):
             h.append(Card(pk, pv, f"{p:4.1f} normalized flux percentile"), bottom=True)
 
-    def _cf_add_bls_results(self, hdul: HDUList):
-        if self.bls_result is not None:
-            h = hdul[0].header
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', '     BLS results      '))
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('bls_snr', self.snr, 'BLS depth signal to noise ratio'), bottom=True)
-            h.append(Card('period', self.period, 'Orbital period [d]'), bottom=True)
-            h.append(Card('epoch', self.zero_epoch, 'Zero epoch [BJD]'), bottom=True)
-            h.append(Card('duration', self.duration, 'Transit duration [d]'), bottom=True)
-            h.append(Card('depth', self.bls_result.depth, 'Transit depth'), bottom=True)
-
-    def _cf_add_ls_results(self, hdul: HDUList):
-        if self.ls_result is not None:
-            h = hdul[0].header
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', ' Lomb-Scargle results '))
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('lsper', self.ls_result.period, 'Lomb-Scargle period [d]'), bottom=True)
-            h.append(Card('lspow', self.ls_result.power, 'Lomb-Scargle power'), bottom=True)
-            h.append(Card('lsfap', self.ls.false_alarm_probability(self.ls_result.power),
-                          'Lomb-Scargle false alarm probability'), bottom=True)
-
-    def _cf_add_celerite_results(self, hdul: HDUList):
-        if self.gp_periodicity is not None:
-            h = hdul[0].header
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', ' Celerite periodicity '))
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('GPPLS', self.gp_periodicity[0], 'GP SHOT term log S0'), bottom=True)
-            h.append(Card('GPPLQ', self.gp_periodicity[1], 'GP SHOT term log Q'), bottom=True)
-            h.append(Card('GPPLO', log(2 * pi / self.period), 'GP SHOT term log omega'), bottom=True)
-
-    def _cf_add_transit_fit_results(self, hdul: HDUList, run: str, title: str):
-        if run in self.transit_fit_results:
-            p = self.transit_fit_results[run].parameters
-            c = run[0]
-            h = hdul[0].header
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card('COMMENT', title))
-            h.append(Card('COMMENT', '======================'))
-            h.append(Card(f'TF{c}_T0', p.tc.med, 'Transit centre [BJD]'), bottom=True)
-            h.append(Card(f'TF{c}_T0E', p.tc.err, 'Transit centre uncertainty [d]'), bottom=True)
-            h.append(Card(f'TF{c}_PR', p.p.med, 'Orbital period [d]'), bottom=True)
-            h.append(Card(f'TF{c}_PRE', p.p.err, 'Orbital period uncertainty [d]'), bottom=True)
-            h.append(Card(f'TF{c}_RHO', p.rho.med, 'Stellar density [g/cm^3]'), bottom=True)
-            h.append(Card(f'TF{c}_RHOE', p.rho.err, 'Stellar density uncertainty [g/cm^3]'), bottom=True)
-            h.append(Card(f'TF{c}_B', p.b.med, 'Impact parameter'), bottom=True)
-            h.append(Card(f'TF{c}_BE', p.b.err, 'Impact parameter uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_AR', p.k2.med, 'Area ratio'), bottom=True)
-            h.append(Card(f'TF{c}_ARE', p.k2.err, 'Area ratio uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_SC', p.c_sin.med, 'Sine phase'), bottom=True)
-            h.append(Card(f'TF{c}_SCE', p.c_sin.err, 'Sine phase uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_SA', p.a_sin_0.med, 'Sine amplitude'), bottom=True)
-            h.append(Card(f'TF{c}_SAE', p.a_sin_0.err, 'Sine amplitude uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_RR', p.k.med, 'Radius ratio'), bottom=True)
-            h.append(Card(f'TF{c}_RRE', p.k.err, 'Radius ratio uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_A', p.a.med, 'Semi-major axis'), bottom=True)
-            h.append(Card(f'TF{c}_AE', p.a.err, 'Semi-major axis uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_T14', p.t14.med, 'Transit duration T14 [d]'), bottom=True)
-            h.append(Card(f'TF{c}_T14E', p.t14.err, 'Transit duration T14 uncertainty [d]'), bottom=True)
-            if isfinite(p.t23.med) and isfinite(p.t23.err):
-                h.append(Card(f'TF{c}_T23', p.t23.med, 'Transit duration T23 [d]'), bottom=True)
-                h.append(Card(f'TF{c}_T23E', p.t23.err, 'Transit duration T23 uncertainty [d]'), bottom=True)
-                h.append(Card(f'TF{c}_TDR', p.t23.med / p.t14.med, 'T23 to T14 ratio'), bottom=True)
-            else:
-                h.append(Card(f'TF{c}_T23', 0, 'Transit duration T23 [d]'), bottom=True)
-                h.append(Card(f'TF{c}_T23E', 0, 'Transit duration T23 uncertainty [d]'), bottom=True)
-                h.append(Card(f'TF{c}_TDR', 0, 'T23 to T14 ratio'), bottom=True)
-            h.append(Card(f'TF{c}_WN', 10 ** p.wn_loge_0.med, 'White noise std'), bottom=True)
-            h.append(Card(f'TF{c}_GRAZ', p.b.med + p.k.med > 1., 'Is the transit grazing'), bottom=True)
-
-            ep, ll = self.transit_fit_results[run].lnldiff
-            lm = ll.max()
-            h.append(Card(f'TF{c}_DLLA', log(exp(ll - lm).mean()) + lm, 'Mean per-orbit delta log likelihood'), bottom=True)
-            if run == 'all':
-                m = ep % 2 == 0
-                lm = ll[m].max()
-                h.append(Card(f'TFA_DLLO', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (odd)'),
-                         bottom=True)
-                m = ep % 2 != 0
-                lm = ll[m].max()
-                h.append(Card(f'TFA_DLLE', log(exp(ll[m] - lm).mean()) + lm, 'Mean per-orbit delta log likelihood (even)'),
-                         bottom=True)
+    def _cf_add_pipeline_steps(self, hdul: HDUList):
+        for step in self._steps:
+            step.add_to_fits(hdul)
 
     def _cf_post_hook(self, hdul: HDUList):
         pass
 
     # Plotting
     # ========
-
     def plot_report(self):
         fig = figure(figsize=(16, 17))
         gs = GridSpec(8, 4, figure=fig, height_ratios=(0.7, 1, 1, 1, 1, 1, 1, 0.1))
@@ -572,14 +271,14 @@ class TransitSearch:
 
         self.plot_header(ax_header)
         self.plot_flux_vs_time(ax_flux)
-        self.plot_bls_snr(ax_snr)
-        self.plot_ls_power(ax_ls)
+        self.bls.plot_snr(ax_snr)
+        self.ls.plot_power(ax_ls)
 
-        self.plot_transit_fit(ax_transit, nbins=40)
-        self.plot_folded_and_binned_lc(ax_folded)
+        self.tf_all.plot_transit_fit(ax_transit, nbins=40)
+        self.tf_all.plot_folded_and_binned_lc(ax_folded)
         self.plot_even_odd(ax_even_odd)
         self.plot_per_orbit_delta_lnlike(ax_per_orbit_lnlike)
-        self.plot_periodic_variability(ax_pvar)
+        self.pvar.plot_model(ax_pvar)
         ax_footer.axhline(lw=20)
 
         ax_snr.set_title('BLS periodogram')
@@ -598,132 +297,46 @@ class TransitSearch:
         ax.axhline(1.0, lw=20)
         ax.text(0.01, 0.77, self.name.replace('_', ' '), size=33, va='top', weight='bold')
         ax.text(0.01, 0.25,
-                       f"$\Delta$BIC {self.dbic:5.0f} | Period  {self.period:5.2f} d | Zero epoch {self.t0:10.2f} | Depth {self.bls_result.depth:5.4f} | Duration {24 * self.duration:>4.2f} h",
+                       f"$\Delta$BIC {self.dbic:5.0f} | Period  {self.period:5.2f} d | Zero epoch {self.zero_epoch:10.2f} | Depth {self.depth:5.4f} | Duration {24 * self.duration:>4.2f} h",
                        va='center', size=18, linespacing=1.75, family='monospace')
         ax.axhline(0.0, lw=8)
         setp(ax, frame_on=False, xticks=[], yticks=[])
 
     @bplot
     def plot_flux_vs_time(self, ax = None):
-        tref = 2457000
-        transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
-        [ax.axvline(t - tref, ls='--', alpha=0.5, lw=1) for t in transits]
-
-        fsap = self._flux_sap
-        fpdc = self._flux_pdcsap
-        fpdc = fpdc + 1 - fpdc.min() + 3 * fsap.std()
-
-        ax.plot(self.time - tref, fpdc, label='PDC')
-        tb, fb, eb = downsample_time(self.time - tref, fpdc, 1 / 24)
+        transits = self.zero_epoch + unique(epoch(self.time, self.zero_epoch, self.period)) * self.period
+        [ax.axvline(t, ls='--', alpha=0.5, lw=1) for t in transits]
+        ax.plot(self.time, self.flux)
+        tb, fb, eb = downsample_time(self.time, self.flux, 1 / 24)
         ax.plot(tb, fb, 'k', lw=1)
-
-        ax.plot(self.time - tref, fsap, label='SAP')
-        tb, fb, eb = downsample_time(self.time - tref, fsap, 1 / 24)
-        ax.plot(tb, fb, 'k', lw=1)
-
-        ax.legend(loc='best')
         ax.autoscale(axis='x', tight=True)
-        ax.set_ylim((ax.get_ylim()[0], median(fpdc) + 5 * sigma_clipped_stats(fpdc)[2]))
-        setp(ax, xlabel=f'Time - {tref} [BJD]', ylabel='Normalized flux')
+        setp(ax, xlabel=f'Time [BJD]', ylabel='Normalized flux')
 
     @bplot
-    def plot_bls_snr(self, ax = None):
-        r = self.bls_result
-        ax.semilogx(r.periods, r.depth_snr, drawstyle='steps-mid')
-        ax.axvline(r.period, alpha=0.5, ls='--', lw=2)
-        setp(ax, xlabel='Period [d]', ylabel='Depth SNR')
+    def plot_per_orbit_delta_lnlike(self, ax=None):
+        ax.plot(self.transit_fits['all'].dll_epochs, self.transit_fits['all'].dll_values)
+        for marker, model in zip('ox', ('even', 'odd')):
+            tf = self.transit_fits[model]
+            ax.plot(tf.dll_epochs, tf.dll_values, ls='', marker=marker, label=model)
+        ax.axhline(0, c='k', ls='--', alpha=0.25, lw=1)
+        ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
-        ax.text(0.81, 0.93, f"Period  {self.period:5.2f} d\nSNR     {self.bls_result.snr:5.2f}", va='top',
-                transform=ax.transAxes, bbox=dict(facecolor='w'), family='monospace', )
-
-    @bplot
-    def plot_ls_power(self, ax=None):
-        r = self.ls_result
-        ax.semilogx(r.periods, r.powers, drawstyle='steps-mid')
-        ax.autoscale(axis='x', tight=True)
-        fap = self.ls.false_alarm_probability(r.power)
-        ax.text(0.81, 0.93, f"Period {r.period:5.2f} d\nFAP    {fap:5.2f}", va='top', family='monospace',
-                transform=ax.transAxes, bbox=dict(facecolor='w'))
-        setp(ax, xlabel='Period [d]', ylabel='LS Power')
-
-    @bplot
-    def plot_transit_fit(self, ax=None, full_phase: bool = False, mode='all', nbins: int = 20, alpha=0.2):
-        model = self.transit_fit_results[mode]
-        p = model.parameters
-        zero_epoch, period, duration = p[['tc', 'p', 't14']].iloc[0].copy()
-        hdur = duration * array([-0.5, 0.5])
-
-        flux_m = model.model
-        phase = model.phase
-        sids = argsort(phase)
-        phase = phase[sids]
-
-        if full_phase:
-            pmask = ones(phase.size, bool)
-        else:
-            pmask = abs(phase) < 1.5 * duration
-
-        if pmask.sum() < 100:
-            alpha = 1
-
-        flux_m = flux_m[sids]
-        flux_o = model.obs[sids]
-        ax.plot(24 * phase[pmask], flux_o[pmask], '.', alpha=alpha)
-        ax.plot(24 * phase[pmask], flux_m[pmask], 'k')
-
-        if duration > 1 / 24:
-            pb, fb, eb = downsample_time(phase[pmask], flux_o[pmask], phase[pmask].ptp() / nbins)
-            ax.errorbar(24 * pb, fb, eb, fmt='ok')
-            ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
-        else:
-            ylim = flux_o[pmask].min(), flux_o[pmask].max()
-
-        ax.text(24 * 2.5 * hdur[0], flux_m.min(), f'$\Delta$F {1 - flux_m.min():6.4f}', size=10, va='center',
-                bbox=dict(color='white'))
-        ax.axhline(flux_m.min(), alpha=0.25, ls='--')
-
-        ax.get_yaxis().get_major_formatter().set_useOffset(False)
-        ax.axvline(0, alpha=0.25, ls='--', lw=1)
-        [ax.axvline(24 * hd, alpha=0.25, ls='-', lw=1) for hd in hdur]
-
-        ax.autoscale(axis='x', tight='true')
-        setp(ax, ylim=ylim, xlabel='Phase [h]', ylabel='Normalised flux')
-
-    @bplot
-    def plot_folded_and_binned_lc(self, ax=None, nbins: int = 100):
-        tf = self.transit_fit_results['all']
-        zero_epoch, period, duration = tf.parameters[['tc', 'p', 't14']].iloc[0].copy()
-        phase = tf.phase
-        sids = argsort(phase)
-        phase = phase[sids]
-        flux_o = tf.obs[sids]
-        flux_m = tf.model[sids]
-
-        pb, fb, eb = downsample_time(phase, flux_o, phase.ptp() / nbins)
-        _, fob, _ = downsample_time(phase, flux_m, phase.ptp() / nbins)
-
-        ax.errorbar(pb, fb, eb)
-        ax.plot(pb, fob, 'k')
-        ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel='Phase [d]', ylabel='Normalized flux')
+        setp(ax, xlabel='Epoch', ylabel="$\Delta$ log likelihood")
 
     @bplot
     def plot_even_odd(self, axs=None, nbins: int = 20, alpha=0.2):
-        hdur = self.duration * array([-0.5, 0.5])
-
         for i, ms in enumerate(('even', 'odd')):
-            m = self.transit_fit_results[ms]
-            phase = m.phase
-            sids = argsort(phase)
-            phase = phase[sids]
+            m = self.transit_fits[ms]
+            sids = argsort(m.phase)
+            phase = m.phase[sids]
             pmask = abs(phase) < 1.5 * self.duration
+            phase = phase[pmask]
+            fmod = m.ftra[sids][pmask]
+            fobs = m.fobs[sids][pmask]
 
-            flux_m = m.transit[sids]
-            flux_o = m.obs[sids]
-
-            pb, fb, eb = downsample_time(phase[pmask], flux_o[pmask], phase[pmask].ptp() / nbins)
+            pb, fb, eb = downsample_time(phase, fobs, phase.ptp() / nbins)
             axs[0].errorbar(24 * pb, fb, eb, fmt='o-', label=ms)
-            axs[1].plot(phase[pmask], flux_m[pmask], label=ms)
+            axs[1].plot(phase, fmod, label=ms)
 
         for ax in axs:
             ax.legend(loc='upper right')
@@ -731,25 +344,3 @@ class TransitSearch:
 
         setp(axs[0], ylabel='Normalized flux')
         setp(axs, xlabel='Phase [h]')
-
-    @bplot
-    def plot_per_orbit_delta_lnlike(self, ax=None):
-        dlnl = self.transit_fit_results['all'].lnldiff
-        ax.plot(dlnl[0], dlnl[1])
-        for marker, model in zip('ox', ('even', 'odd')):
-            dlnl = self.transit_fit_results[model].lnldiff
-            ax.plot(dlnl[0], dlnl[1], ls='', marker=marker, label=model)
-        ax.axhline(0, c='k', ls='--', alpha=0.25, lw=1)
-        ax.legend(loc='upper right')
-        ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel='Epoch', ylabel="$\Delta$ log likelihood")
-
-    @bplot
-    def plot_periodic_variability(self, ax):
-        sids = argsort(self.pvar_phase)
-        if self.pvar_removed:
-            ax.plot(self.pvar_phase[sids], self.pvar_model[sids])
-        else:
-            ax.plot(self.pvar_phase[sids], self.pvar_model[sids], '--', alpha=0.5)
-        ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel='Phase', ylabel='Normalized flux')
