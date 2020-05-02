@@ -1,0 +1,200 @@
+#!/usr/bin/env python
+"""Script to search for exoplanet transits from photometric time series.
+
+"""
+
+#  OpenTS: Open exoplanet transit search pipeline.
+#  Copyright (C) 2015-2020  Hannu Parviainen
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import sys
+import logging
+from logging import info
+from pathlib import Path
+from argparse import ArgumentParser
+from typing import List, Dict, Optional, Union
+
+from matplotlib.pyplot import close
+from tqdm import tqdm
+
+MPI_ROOT = 0
+
+try:
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+    is_root = rank == MPI_ROOT
+    with_mpi = True
+except ImportError:
+    with_mpi = False
+    size = 1
+    is_root = True
+
+from opents import TransitSearch, select_ts_class
+
+logging.basicConfig(filename='opents.log', level=logging.INFO)
+logger = logging.getLogger("OpenTS")
+logger.setLevel(logging.INFO)
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter(' - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
+
+def run_mpi_master_node(args):
+    TSC: TransitSearch = select_ts_class(args.source)
+    logger.info(f"Chose {TSC.__name__} transit search class")
+    files: Dict = TSC.gather_data(args.source, target=args.target)
+    targets: List = sorted(files.keys())
+
+    logger.info(f"Found {len(targets)} target{'s' if len(targets) > 1 else ''}")
+    logger.handlers[-1].flush()
+    print("", flush=True)
+
+    free_workers: List = list(range(1, size))
+    active_workers: List = []
+
+    n_files: int = len(targets)
+    n_finished_files: int = 0
+    with tqdm(desc='Transit search', total=n_files) as pbar:
+        while targets or active_workers:
+            while targets and free_workers:
+                w = free_workers.pop(0)
+                comm.send(files[targets.pop(0)], dest=w, tag=0)
+                comm.send(TSC, dest=w, tag=0)
+                active_workers.append(w)
+
+            for w in active_workers:
+                if comm.Iprobe(w, 2):
+                    free_workers.append(w)
+                    active_workers.remove(w)
+                    n_finished_files += 1
+                    pbar.update(1)
+
+        for w in free_workers:
+            comm.send(-1, dest=w, tag=0)
+
+
+def run_mpi_worker_node(args):
+        while True:
+            fname = comm.recv(source=MPI_ROOT, tag=0)
+            if fname == -1:
+                break
+            TSC = comm.recv(source=MPI_ROOT, tag=0)
+            run_search(TSC, fname, args)
+            comm.send(1, dest=MPI_ROOT, tag=2)
+
+
+def run_search(TSC, files: Union[List[Path], Path, str], args):
+    ts: TransitSearch = TSC(bic_limit=args.bic_limit, use_tqdm=False)
+    ts.read_data(files)
+    for i in range(args.max_planets):
+        ts.run()
+        ts.save_fits(args.result_dir)
+
+        if args.plot:
+            fig = ts.plot_report()
+            fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet}.{args.plot_format}")
+            close(fig)
+
+        if ts.dbic > args.bic_limit:
+            ts.next_planet()
+        else:
+            break
+
+
+if __name__ == '__main__':
+    ap = ArgumentParser(description="OpenTS: Open exoplanet transit search pipeline")
+    ap.add_argument('source', default='.', type=Path)
+    ap.add_argument('--target', default=None, type=int)
+    ap.add_argument('--glob-pattern', type=str, default="*", help="Filename glob pattern")
+    ap.add_argument('--max-planets', type=int, default=5, help='Maximum number of planets to search for in a system.')
+    ap.add_argument('--result-dir', default='.', type=Path)
+    ap.add_argument('--plot-dir', default='.', type=Path)
+    ap.add_argument('--dont-plot', dest='plot', action='store_false', default=True)
+    ap.add_argument('--plot-format', type=str, default='png', choices=['pdf', 'png'], help='File format for plots')
+    ap.add_argument('--bic-limit', type=float, default=5)
+    args = ap.parse_args()
+
+    source: Path = args.source.resolve()
+    dresult: Path = args.result_dir.resolve()
+    dplot: Path = args.plot_dir.resolve()
+
+    if is_root:
+        print("", flush=True)
+        print("OpenTS - Open exoplanet transit search pipeline", flush=True)
+        print("===============================================\n", flush=True)
+
+        if source.exists():
+            if source.is_dir():
+                logger.info(f"Running the search for data files in '{source}'")
+            else:
+                logger.info(f"Running the search for a single file: '{source}'")
+        else:
+            raise FileNotFoundError(f"The data file or directory '{source}' doesn't exist")
+
+        if args.target is not None:
+            logger.info(f"Including only targets matching id {args.target}")
+
+        if not dresult.exists():
+            logger.info(f"Creating a non-existing result directory '{dresult}'")
+            dresult.mkdir()
+        logger.info(f"Saving results to '{dresult}'")
+
+        if not dplot.exists():
+            logger.info(f"Creating a non-existing plot directory '{dplot}'")
+            dplot.mkdir()
+        logger.info(f"Saving plots to '{dplot}'")
+
+    # Serial branch
+    # -------------
+    if size == 1 or not with_mpi:
+        logger.info("Running in serial mode")
+        TSC: TransitSearch = select_ts_class(source)
+        logger.info(f"Chose {TSC.__name__} transit search class")
+        files: Dict = TSC.gather_data(source, target=args.target)
+        targets: List = sorted(files.keys())
+
+        logger.info(f"Found {len(targets)} target{'s' if len(targets) > 1 else ''}")
+        logger.handlers[-1].flush()
+        print('', flush=True)
+        for target in tqdm(targets, desc='Transit search'):
+            run_search(TSC, files[target], args)
+
+    # MPI branch
+    # ----------
+    if with_mpi and size > 1:
+        if is_root:
+            logger.info(f"Running in MPI mode with {size - 1} worker nodes")
+            run_mpi_master_node(args)
+        else:
+            run_mpi_worker_node(args)
+
