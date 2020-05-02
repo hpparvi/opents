@@ -13,12 +13,17 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from logging import getLogger
+
 from astropy.io.fits import HDUList
 
 
 class OTSStep:
+    name = "otsstep"
+
     def __init__(self, ts):
         self.ts = ts
+        self.logger = None
 
     def __call__(self):
         raise NotImplementedError

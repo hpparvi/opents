@@ -13,7 +13,27 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from pathlib import Path
 
 from .transitsearch import TransitSearch
-from .k2transitsearch import K2TransitSearch
-from .tesstransitsearch import TESSTransitSearch
+from .k2scts import K2SCTS
+from .tessspocts import TESSSPOCTS
+from .tessiacts import TESSIACTS
+
+ts_classes = (TESSIACTS, TESSSPOCTS)
+
+def select_ts_class(data_source: Path):
+    """Selects the correct transit search class given an input data file or directory
+
+    Parameters
+    ----------
+    data_source: Path
+        Data file or directory with data files
+
+    Returns
+    -------
+        TransitSearch subclass specialized for the input data
+    """
+    for tsc in ts_classes:
+        if tsc.can_read_input(data_source):
+            return tsc

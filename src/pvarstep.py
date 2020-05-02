@@ -17,14 +17,12 @@ from logging import getLogger
 
 from matplotlib.pyplot import setp
 from numba import njit
-from numpy import linspace, zeros_like, median, diff, percentile, fabs, log, argsort
+from numpy import linspace, zeros_like, median, diff, percentile, fabs, log, argsort, ones, where, nan
 from pytransit.utils.misc import fold
 from scipy.interpolate import interp1d
 
-from src.otsstep import OTSStep
-from src.plots import bplot
-
-logger = getLogger("pvar-step")
+from .otsstep import OTSStep
+from .plots import bplot
 
 @njit
 def running_median(xs, ys, width, nbin):
@@ -42,8 +40,10 @@ def running_median(xs, ys, width, nbin):
 
 
 class PVarStep(OTSStep):
+    name = 'pvar'
     def __call__(self):
-        logger.info("Possibly maybe perhaps removing a periodic signal")
+        self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
+        self.logger.info("Testing for a significant non-transit-like periodic variability")
 
         phase = fold(self.ts.time, self.ts.ls.period)
         bp, bf = running_median(phase, self.ts.flux, 0.05, 100)
@@ -61,7 +61,7 @@ class PVarStep(OTSStep):
         max_slope = df.max()
         slope_percentile_ratio = ps[0] / ps[1]
 
-        self.pvar_phase = phase
+        self.pvar_phase = phase * self.ts.ls.period
         self.pvar_model = pv
         self.pvar_spr = slope_percentile_ratio
         self.pvar_amplitude = pv_amplitude
@@ -72,18 +72,31 @@ class PVarStep(OTSStep):
         self.pvar_is_transit_like = slope_percentile_ratio < 0.1  # Conservative limit to make sure we're not removing transits
 
         if self.pvar_is_sigificant and not self.pvar_is_transit_like:
+            self.logger.info("Found and removed a periodic signal")
             self.model_removed = True
             flux = self.ts.flux - self.pvar_model + 1
-            self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
+            #self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
         else:
             self.model_removed = False
+            if self.pvar_is_sigificant:
+                self.logger.info("Found a periodic signal but it's too transit-like to be removed")
+            else:
+                self.logger.info("Didn't find any significant periodic signals")
 
     @bplot
-    def plot_model(self, ax):
+    def plot_over_phase(self, ax):
         sids = argsort(self.pvar_phase)
         if self.model_removed:
-            ax.plot(self.pvar_phase[sids], self.pvar_model[sids])
+            ax.plot(self.pvar_phase[sids], 1e2 * (self.pvar_model[sids] - 1))
         else:
-            ax.plot(self.pvar_phase[sids], self.pvar_model[sids], '--', alpha=0.5)
+            ax.plot(self.pvar_phase[sids], 1e2 * (self.pvar_model[sids] - 1), '--', alpha=0.5)
         ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel='Phase', ylabel='Normalized flux')
+        setp(ax, xlabel='Phase [d]', ylabel='Periodic model [%]')
+
+    def plot_over_time(self, ax):
+        mbreak = ones(self.ts.time.size, bool)
+        mbreak[1:] = diff(self.ts.time) < 1
+        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.ts.flux_detrended, nan))
+        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.pvar_model, nan), 'k')
+        setp(ax, xlabel=f'Time - {self.ts.bjdrefi} [BJD]')
+        ax.autoscale(axis='x', tight=True)

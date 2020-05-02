@@ -14,19 +14,23 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
+
 from pathlib import Path
-from logging import info
 
 from astropy.io.fits import HDUList, PrimaryHDU, Card
 from astropy.stats import mad_std
+from matplotlib.axes import Axes
 from matplotlib.gridspec import GridSpec
+from matplotlib.lines import Line2D
 from matplotlib.pyplot import setp, figure, subplot
+from matplotlib.transforms import offset_copy
 from numpy import log, pi, argsort, unique, ndarray, percentile, array
 from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 from pytransit.lpf.tesslpf import downsample_time
 
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 
 from .celeritestep import CeleriteStep
 from .plots import bplot
@@ -66,14 +70,17 @@ class TSData:
         return self._ferr[-1]
 
 
+
+
 class TransitSearch:
-    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, bic_limit: float = 5,
+    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
 
-        self.name: Optional[str] = None
+        self.name: Optional[str] = ''
         self.planet: int = 1
+        self.min_transits: int = min_transits
         self.pmin: float = pmin
-        self.pmax: float = pmax
+        self.pmax: Optional[float] = pmax
         self.nper: int  = nper
         self.nsamples: int = nsamples
         self.exptime: float = exptime
@@ -91,9 +98,11 @@ class TransitSearch:
         self.gp_result = None
         self.gp_periodicity = None
 
+        self.logger = None
         self._data = None
         self._steps = []
 
+        self.mag: Optional[float] = None           # Host star magnitude (TESS magnitude, Kepler Magnitude, etc.)
         self.teff: Optional[float] = None          # Host star effective temperature
         self.period: Optional[float] = None        # Orbital period
         self.zero_epoch: Optional[float] = None    # Zero epoch
@@ -103,6 +112,14 @@ class TransitSearch:
         self.dbic: Optional[float] = None          # Delta BIC
 
         self.initialize_steps()
+
+    @staticmethod
+    def can_read_input(source: Path) -> bool:
+        raise NotImplementedError
+
+    @staticmethod
+    def gather_data(source: Path, target: Optional[int] = None) -> Dict:
+        raise NotImplementedError
 
     def register_step(self, step):
         self._steps.append(step)
@@ -119,9 +136,9 @@ class TransitSearch:
         self.cvar    = self.register_step(CeleriteStep(self))
         self.pvar    = self.register_step(PVarStep(self))
         self.bls     = self.register_step(BLSStep(self))
-        self.tf_all  = self.register_step(TransitFitStep(self, 'all', ' Transit fit results  '))
-        self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  '))
-        self.tf_odd  = self.register_step(TransitFitStep(self, 'odd', ' Odd tr. fit results  '))
+        self.tf_all  = self.register_step(TransitFitStep(self, 'all', ' Transit fit results  ', use_tqdm=self.use_tqdm))
+        self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  ', use_tqdm=self.use_tqdm))
+        self.tf_odd  = self.register_step(TransitFitStep(self, 'odd', ' Odd tr. fit results  ', use_tqdm=self.use_tqdm))
 
     def update_data(self, step: str, time: ndarray, flux: ndarray, ferr: ndarray):
         self._data.update(step, time, flux, ferr)
@@ -130,6 +147,7 @@ class TransitSearch:
         name, time, flux, ferr = self._reader(filename)
         self._data = TSData(time, flux, ferr)
         self.name = name
+        self.pmax = self.pmax or 0.98 * (time.ptp() / self.min_transits)
 
     def _reader(self, filename: Path):
         raise NotImplementedError
@@ -258,51 +276,118 @@ class TransitSearch:
     # Plotting
     # ========
     def plot_report(self):
+        def sb(*nargs, **kwargs) -> Axes:
+            return subplot(*nargs, **kwargs)
+
+        lmargin = 0.06
+        rmargin = 0.01
+
+        headheight = 0.11
+        headpad = 0.04
+        footheight = 0.03
+        footpad = 0.04
+
         fig = figure(figsize=(16, 17))
-        gs = GridSpec(8, 4, figure=fig, height_ratios=(0.7, 1, 1, 1, 1, 1, 1, 0.1))
-        ax_header = subplot(gs[0, :])
-        ax_flux = subplot(gs[1:3, :])
-        ax_snr = subplot(gs[3, :2])
-        ax_ls = subplot(gs[4, :2])
-        ax_transit = subplot(gs[4, 2:])
-        ax_folded = subplot(gs[3, 2:])
-        ax_even_odd = subplot(gs[5, 2]), subplot(gs[5, 3])
-        ax_per_orbit_lnlike = subplot(gs[5, :2])
-        ax_pvar = subplot(gs[6,:2])
-        ax_footer = subplot(gs[-1, :])
+        gs = GridSpec(7, 4, figure=fig, wspace=0.4, hspace=0.5,
+                      left=lmargin, right=1 - rmargin, bottom=footheight + footpad, top=1 - headheight - headpad)
 
-        self.plot_header(ax_header)
-        self.plot_flux_vs_time(ax_flux)
-        self.bls.plot_snr(ax_snr)
-        self.ls.plot_power(ax_ls)
+        header = fig.add_axes((0, 1 - headheight, 1, headheight), frame_on=False, xticks=[], yticks=[])
+        footer = fig.add_axes((0, 0, 1, footheight), frame_on=False, xticks=[], yticks=[])
 
-        self.tf_all.plot_transit_fit(ax_transit, nbins=40)
-        self.tf_all.plot_folded_and_binned_lc(ax_folded)
-        self.plot_even_odd(ax_even_odd)
-        self.plot_per_orbit_delta_lnlike(ax_per_orbit_lnlike)
-        self.pvar.plot_model(ax_pvar)
-        ax_footer.axhline(lw=20)
+        # Flux over time
+        # --------------
+        aflux = sb(gs[0:2, :])
+        self.plot_flux_vs_time(aflux)
 
-        ax_snr.set_title('BLS periodogram')
-        ax_ls.set_title('Lomb-Scargle periodigram')
-        ax_transit.set_title('Phase-folded transit')
-        ax_folded.set_title('Phase-folded orbit')
-        ax_per_orbit_lnlike.set_title('Per-orbit $\Delta$ log likelihood')
-        ax_even_odd[0].set_title('Observed even and odd transits')
-        ax_even_odd[1].set_title('Modelled even and odd transits')
-        setp(ax_footer, frame_on=False, xticks=[], yticks=[])
-        setp(ax_even_odd[1], yticks=[], ylim=ax_even_odd[0].get_ylim())
-        fig.tight_layout()
+        # Periodograms
+        # ------------
+        gs_periodograms = gs[2:4, :2].subgridspec(2, 1, hspace=0.05)
+        abls = sb(gs_periodograms[0])
+        als = sb(gs_periodograms[1], sharex=abls)
+
+        self.bls.plot_snr(abls)
+        abls.text(0.02, 1, 'Periodograms', va='center', ha='left', transform=abls.transAxes, size=11,
+                  bbox=dict(facecolor='w'))
+        tra = offset_copy(abls.transAxes, fig=fig, x=-10, y=10, units='points')
+        abls.text(1, 0, 'BLS', va='bottom', ha='right', transform=tra, size=11, bbox=dict(facecolor='w'))
+
+        self.ls.plot_power(als)
+        tra = offset_copy(als.transAxes, fig=fig, x=-10, y=10, units='points')
+        als.text(1, 0, 'Lomb-Scargle', va='bottom', ha='right', transform=tra, size=11, bbox=dict(facecolor='w'))
+
+        # Per-orbit log likelihood difference
+        # -----------------------------------
+        gs_dll = gs[4:6, :2].subgridspec(2, 1, hspace=0.05)
+        adll = sb(gs_dll[0])
+        adllc = sb(gs_dll[1], sharex=adll)
+
+        self.plot_dll(adll)
+        self.plot_cumulative_dll(adllc)
+
+        adll.text(0.02, 1, 'Per-orbit $\Delta$ log likelihood', va='center', transform=adll.transAxes, size=11,
+                  bbox=dict(facecolor='w'))
+        setp(adll.get_xticklabels(), visible=False)
+        setp(adll, xlabel='')
+
+        # Periodic varialibity
+        # --------------------
+        apvp = sb(gs[6, :2])
+        apvt = sb(gs[6, 2:])
+
+        self.pvar.plot_over_phase(apvp)
+        apvp.text(0.02, 1, 'Periodic variability', va='center', transform=apvp.transAxes, size=11,
+                  bbox=dict(facecolor='w'))
+
+        self.pvar.plot_over_time(apvt)
+        apvt.text(0.02, 1, 'Periodic variability', va='center', transform=apvt.transAxes, size=11,
+                  bbox=dict(facecolor='w'))
+
+        # Transit and orbit
+        # -----------------
+        gs_to = gs[2:5, 2:].subgridspec(2, 1)
+        atr = sb(gs_to[0])
+        aor = sb(gs_to[1], sharey=atr)
+
+        self.tf_all.plot_transit_fit(atr, nbins=40)
+        self.plot_folded_orbit(aor)
+
+        atr.text(0.02, 1, 'Phase-folded transit', va='center', transform=atr.transAxes, size=11,
+                 bbox=dict(facecolor='w'))
+        aor.text(0.02, 1, 'Phase-folded orbit', va='center', transform=aor.transAxes, size=11, bbox=dict(facecolor='w'))
+
+        # Even ad odd transit fits
+        # ------------------------
+        gs3 = gs[5, 2:].subgridspec(1, 2, wspace=0.05)
+        ato = sb(gs3[0])
+        atm = sb(gs3[1], sharey=ato)
+
+        self.plot_even_odd((ato, atm))
+        ato.text(0.02, 1, 'Even and odd transits', va='center', transform=ato.transAxes, size=11,
+                 bbox=dict(facecolor='w'))
+        setp(atm.get_yticklabels(), visible=False)
+
+        fig.lines.extend([
+            Line2D([0, 1], [1, 1], lw=10, transform=fig.transFigure, figure=fig),
+            Line2D([0, 1], [1 - headheight, 1 - headheight], lw=10, transform=fig.transFigure, figure=fig),
+            Line2D([0, 1], [footheight, footheight], lw=5, transform=fig.transFigure, figure=fig),
+            Line2D([0, 1], [0, 0], lw=10, transform=fig.transFigure, figure=fig)
+        ])
+
+        footer.text(0.5, 0.5, 'Open Exoplanet Transit Search Pipeline', ha='center', va='center', size='large')
+        self.plot_header(header)
+
+        fig.align_ylabels([aflux, abls, als, adll, adllc, apvp])
+        fig.align_ylabels([atr, aor, ato, apvt])
         return fig
 
+
     def plot_header(self, ax):
-        ax.axhline(1.0, lw=20)
-        ax.text(0.01, 0.77, self.name.replace('_', ' '), size=33, va='top', weight='bold')
-        ax.text(0.01, 0.25,
-                       f"$\Delta$BIC {self.dbic:5.0f} | Period  {self.period:5.2f} d | Zero epoch {self.zero_epoch:10.2f} | Depth {self.depth:5.4f} | Duration {24 * self.duration:>4.2f} h",
-                       va='center', size=18, linespacing=1.75, family='monospace')
-        ax.axhline(0.0, lw=8)
-        setp(ax, frame_on=False, xticks=[], yticks=[])
+        ax.text(0.01, 0.85, f"{self.name.replace('_', ' ')} - Candidate {self.planet}", size=33, va='top', weight='bold')
+        mags = f"{self.mag:3.1f}" if self.mag else '   '
+        teffs = f"{self.teff:5.0f}" if self.teff else '     '
+        s = (f"$\Delta$BIC {self.dbic:6.1f} | SNR {self.bls.snr:6.1f}   | Period    {self.period:5.2f} d | T$_0$ {self.zero_epoch:10.2f} | Depth {self.depth:5.4f} | Duration {24 * self.duration:>4.2f} h\n"
+             f"Mag     {mags} | TEff {teffs} K | LS Period {self.ls.period:5.2f} d | LS FAP {self.ls.fap:5.4f} | Period limits  {self.pmin:5.2f} – {self.pmax:5.2f} d")
+        ax.text(0.01, 0.55, s, va='top', size=19.2, linespacing=1.5, family='monospace')
 
     @bplot
     def plot_flux_vs_time(self, ax = None):
@@ -315,7 +400,7 @@ class TransitSearch:
         setp(ax, xlabel=f'Time [BJD]', ylabel='Normalized flux')
 
     @bplot
-    def plot_per_orbit_delta_lnlike(self, ax=None):
+    def plot_dll(self, ax=None):
         ax.plot(self.transit_fits['all'].dll_epochs, self.transit_fits['all'].dll_values)
         for marker, model in zip('ox', ('even', 'odd')):
             tf = self.transit_fits[model]
@@ -324,6 +409,23 @@ class TransitSearch:
         ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
         setp(ax, xlabel='Epoch', ylabel="$\Delta$ log likelihood")
+
+    @bplot
+    def plot_cumulative_dll(self, ax=None):
+        ax.plot(self.tf_all.dll_epochs, self.tf_all.dll_values.cumsum())
+        ax.plot(self.tf_even.dll_epochs, self.tf_even.dll_values.cumsum(), ls='--', alpha=0.5)
+        ax.plot(self.tf_odd.dll_epochs, self.tf_odd.dll_values.cumsum(), ls='--', alpha=0.5)
+        setp(ax, xlabel='Epoch')
+        ax.autoscale(axis='x', tight=True)
+
+    @bplot
+    def plot_folded_orbit(self, ax=None, nbins: int = 100):
+        phase = self.phase - 0.5 * self.period
+        sids = argsort(phase)
+        pb, fb, eb = downsample_time(phase[sids], self.flux[sids], phase.ptp() / nbins)
+        ax.errorbar(pb, fb, eb, fmt='k.')
+        ax.autoscale(axis='x', tight=True)
+        setp(ax, xlabel='Phase [d]', ylabel='Normalized flux')
 
     @bplot
     def plot_even_odd(self, axs=None, nbins: int = 20, alpha=0.2):
@@ -340,8 +442,8 @@ class TransitSearch:
             axs[0].errorbar(24 * pb, fb, eb, fmt='o-', label=ms)
             axs[1].plot(phase, fmod, label=ms)
 
+        axs[1].legend(loc='upper right')
         for ax in axs:
-            ax.legend(loc='upper right')
             ax.autoscale(axis='x', tight='true')
 
         setp(axs[0], ylabel='Normalized flux')

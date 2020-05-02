@@ -13,9 +13,10 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import logging
 from logging import info
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Dict
 
 from astropy.io.fits import Card, getheader, Header, HDUList
 from astropy.stats import sigma_clipped_stats, mad_std
@@ -30,21 +31,8 @@ from .transitsearch import TransitSearch
 from .plots import bplot
 
 
-def read_data_directory(ddir: Path, tic: int = None, tic_pattern: str = '*'):
-    if tic is not None:
-        tic_pattern = f'*{tic}*'
-    files = sorted(ddir.glob(f'tess*-s*-{tic_pattern}-*s_lc.fits'))
-    tic_files = {}
-    for f in files:
-        tic = int(f.name.split('-')[2])
-        if not tic in tic_files:
-            tic_files[tic] = []
-        tic_files[tic].append(f)
-    return tic_files
-
-
-class TESSTransitSearch(TransitSearch):
-    def __init__(self, pmin: float = 0.25, pmax: float = 15., nper: int = 10000, bic_limit: float = 5,
+class TESSSPOCTS(TransitSearch):
+    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
 
         self.bjdrefi: int = 2457000
@@ -61,13 +49,64 @@ class TESSTransitSearch(TransitSearch):
         self.flux_detrended: Optional[ndarray] = None
         self.flux_flattened: Optional[ndarray] = None
 
-        super().__init__(pmin, pmax, nper, bic_limit, nsamples, exptime, use_tqdm, use_opencl)
+        super().__init__(pmin, pmax, nper, bic_limit, min_transits, nsamples, exptime, use_tqdm, use_opencl)
 
     # Data input
     # ==========
     # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
     # minimum any subclass needs to implement for the class to function.
     #
+    @staticmethod
+    def can_read_input(source: Path) -> bool:
+        """Tests whether the data files are readable by TESSTransitSearch.
+
+        Parameters
+        ----------
+        source: Path
+            Either a directory with data files or a single file
+
+        Returns
+        -------
+            True if the files are readable, False if not.
+        """
+        try:
+            dfile = sorted(source.glob('tess*.fits'))[0] if source.is_dir() else source
+            h = getheader(dfile)
+            return h['TELESCOP'] == 'TESS' and 'spoc' in h['PROCVER']
+        except:
+            return False
+
+    @staticmethod
+    def gather_data(source: Path, target: Optional[int] = None) -> Dict:
+        """Gathers all the data files in a source directory into a dictionary
+
+        Parameters
+        ----------
+        source: Path
+            Either a directory with data files or a single file
+        target: int, optional
+            Glob pattern to select a subset of TICs
+
+        Returns
+        -------
+            Dictionary of lists where each list contains data files for a single TIC.
+        """
+        if source.is_dir():
+            tic_pattern = f'*{target}*' if target is not None else '*'
+            files = sorted(source.glob(f'tess*-s*-{tic_pattern}-*s_lc.fits'))
+        elif source.is_file():
+            files = [source]
+        else:
+            raise NotImplementedError()
+
+        tic_files = {}
+        for f in files:
+            tic = int(f.name.split('-')[2])
+            if not tic in tic_files:
+                tic_files[tic] = []
+            tic_files[tic].append(f)
+        return tic_files
+
     def _reader(self, files: Union[Path, str, List[Path]]):
         if isinstance(files, Path) or isinstance(files, str):
             files = [files]
@@ -103,11 +142,13 @@ class TESSTransitSearch(TransitSearch):
         self.time_raw = time
         self.flux_detrended = flux
         self.flux_raw = concatenate(f2)
+        self.mag = self._h0['TESSMAG']
 
         name = self._h0['OBJECT'].replace(' ', '_')
+        self.logger = logging.getLogger(f"tessts:{name}")
 
-        info(f"Target {self._h0['OBJECT']}")
-        info(f"Read {len(files)} sectors, {time.size} points covering {time.ptp():.2f} days")
+        self.logger.info(f"Target {self._h0['OBJECT']}")
+        self.logger.info(f"Read {len(files)} sectors, {time.size} points covering {time.ptp():.2f} days")
         return name, time, flux, ferr
 
     # FITS file output

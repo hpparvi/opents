@@ -15,36 +15,22 @@
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Dict
 
-from PIL.ImageChops import offset
-from astropy.io.fits import Card, getheader, Header, diff
+from astropy.io.fits import Card, getheader, Header
 from astropy.stats import sigma_clipped_stats, mad_std
 from matplotlib.artist import setp
-from numpy import median, isfinite, argsort, ndarray, unique, array, ones, load, concatenate
+from matplotlib.ticker import MaxNLocator
+from numpy import median, isfinite, argsort, ndarray, unique, array, ones, load, concatenate, percentile, diff
 from pytransit.lpf.tesslpf import downsample_time
 from pytransit.orbits import epoch
-
-from scipy.ndimage import binary_erosion
 
 from .transitsearch import TransitSearch
 from .plots import bplot
 
-def read_data_directory(ddir: Path, tic: int = None, tic_pattern: str = '*'):
-    if tic is not None:
-        tic_pattern = f'*{tic}*'
-    files = sorted(ddir.glob(f'lc_{tic_pattern}_data.npz'))
-    tic_files = {}
-    for f in files:
-        tic = int(f.name.split('_')[1])
-        if not tic in tic_files:
-            tic_files[tic] = []
-        tic_files[tic].append(f)
-    return tic_files
 
-
-class IACTESSTransitSearch(TransitSearch):
-    def __init__(self, pmin: float = 0.25, pmax: float = 10., nper: int = 10000, bic_limit: float = 5,
+class TESSIACTS(TransitSearch):
+    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
 
         self.bjdrefi: int = 2457000
@@ -62,15 +48,64 @@ class IACTESSTransitSearch(TransitSearch):
         self.flux_detrended: Optional[ndarray] = None
         self.flux_flattened: Optional[ndarray] = None
 
-        self._flux_sap: Optional[ndarray] = None
-        self._flux_pdcsap: Optional[ndarray] = None
-        super().__init__(pmin, pmax, nper, bic_limit, nsamples, exptime, use_tqdm, use_opencl)
+        super().__init__(pmin, pmax, nper, bic_limit, min_transits, nsamples, exptime, use_tqdm, use_opencl)
 
     # Data input
     # ==========
     # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
     # minimum any subclass needs to implement for the class to function.
     #
+    @staticmethod
+    def can_read_input(source: Path) -> bool:
+        """Tests whether the data files are readable by TESSTransitSearch.
+
+        Parameters
+        ----------
+        source: Path
+            Either a directory with data files or a single file
+
+        Returns
+        -------
+            True if the files are readable, False if not.
+        """
+        try:
+            dfile = str(sorted(source.glob('lc*_data.npz'))[0] if source.is_dir() else source)
+            f = load(dfile)
+            return 'flux_flat' in f and 'time_flat' in f
+        except:
+            return False
+
+    @staticmethod
+    def gather_data(source: Path, target: Optional[int] = None) -> Dict:
+        """Gathers all the data files in a source directory into a dictionary
+
+        Parameters
+        ----------
+        source: Path
+            Either a directory with data files or a single file
+        target: int, optional
+            Glob pattern to select a subset of TICs
+
+        Returns
+        -------
+            Dictionary of lists where each list contains data files for a single TIC.
+        """
+        if source.is_dir():
+            tic_pattern = f'*{target}*' if target is not None else '*'
+            files = sorted(source.glob(f'lc_{tic_pattern}_data.npz'))
+        elif source.is_file():
+            files = [source]
+        else:
+            raise NotImplementedError()
+
+        tic_files = {}
+        for f in files:
+            tic = int(f.name.split('_')[1])
+            if not tic in tic_files:
+                tic_files[tic] = []
+            tic_files[tic].append(f)
+        return tic_files
+
     def _reader(self, files: Union[Path, str, List[Path]]):
         if isinstance(files, Path) or isinstance(files, str):
             files = [files]
@@ -108,6 +143,7 @@ class IACTESSTransitSearch(TransitSearch):
 
         self.flux_raw = concatenate(f2)
         self.flux_detrended = concatenate(fluxes)
+        self.mag = self._h0['TESSMAG'][1]
 
         name = self._h0['OBJECT'][1].replace(' ', '_')
         return name, concatenate(times), concatenate(fluxes), concatenate(ferrs)
@@ -157,27 +193,34 @@ class IACTESSTransitSearch(TransitSearch):
 
     @bplot
     def plot_flux_vs_time(self, ax=None):
-        rstd = mad_std(self.flux_raw)
-        dstd = mad_std(self.flux_detrended)
-        offset = 4*rstd + 4*dstd
+        rpc = percentile(self.flux_raw, [0.5, 99.5, 50])
+        dpc = percentile(self.flux_detrended, [0.5, 99.5, 50])
 
+        d = 1.15
+        bbox_raw = rpc[-1] + d * (rpc[0] - rpc[-1]), rpc[-1] + d * (rpc[1] - rpc[-1])
+        bbox_dtr = dpc[-1] + d * (dpc[0] - dpc[-1]), dpc[-1] + d * (dpc[1] - dpc[-1])
+        offset = d * (rpc[1] - rpc[-1]) - d * (dpc[0] - dpc[-1])
+
+        ax.plot(self.time_detrended - self.bjdrefi, self.flux_detrended + 1.2*offset, label='detrended')
         ax.plot(self.time_raw - self.bjdrefi, self.flux_raw, label='raw')
-        ax.plot(self.time_detrended - self.bjdrefi, self.flux_detrended + offset, label='detrended')
 
-        if hasattr(self, 't0'):
-            transits = self.t0 + unique(epoch(self.time, self.t0, self.period)) * self.period
-            [ax.axvline(t - self.bjdrefi, ls='--', alpha=0.5, lw=1) for t in transits]
+        if self.zero_epoch:
+            transits = self.zero_epoch + unique(epoch(self.time, self.zero_epoch, self.period)) * self.period
+            [ax.axvline(t - self.bjdrefi, ls='--', alpha=0.5, lw=1) for t in transits if
+             self.time[0] < t < self.time[-1]]
 
             def time2epoch(x):
-                return (x + self.bjdrefi - self.t0) / self.period
+                return (x + self.bjdrefi - self.zero_epoch) / self.period
 
             def epoch2time(x):
-                return self.t0 - self.bjdrefi + x * self.period
+                return self.zero_epoch - self.bjdrefi + x * self.period
 
             secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
             secax.set_xlabel('Epoch')
+            secax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
         ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
+        yp_offset = diff(ax.transData.inverted().transform([[0, 0], [0, 40]])[:, 1])
         setp(ax, xlabel=f'Time - {self.bjdrefi} [BJD]', ylabel='Normalized flux',
-             ylim=(1 - 5 * rstd, 1 + offset + 5 * dstd))
+             ylim=(bbox_raw[0] - yp_offset, bbox_dtr[1] + offset + yp_offset))

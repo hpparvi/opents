@@ -116,7 +116,7 @@ class SearchLPF(BaseLPF):
         self._start_ld = self.ps.blocks[-1].start
 
 class TransitFitStep(OTSStep):
-
+    name = "tf"
     def __init__(self, ts, mode: str, title: str, nsamples: int = 1, exptime: float = 1, use_opencl: bool = False, use_tqdm: bool = True):
         assert mode in ('all', 'even', 'odd')
         super().__init__(ts)
@@ -146,7 +146,8 @@ class TransitFitStep(OTSStep):
         self.depth = None       # Best-fit depth
 
     def __call__(self, npop: int = 30, de_niter: int = 1000, mcmc_niter: int = 100, mcmc_repeats: int = 2, initialize_only: bool = False):
-        logger.info(f"Fitting {self.mode} transits")
+        self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
+        self.logger.info(f"Fitting {self.mode} transits")
         self.ts.transit_fits[self.mode] = self
 
         epochs = epoch(self.ts.time, self.ts.zero_epoch, self.ts.period)
@@ -230,7 +231,7 @@ class TransitFitStep(OTSStep):
 
             if self.mode == 'all':
                 self.delta_bic = self.ts.dbic = delta_bic(lnl.sum(), 0, 9, self.time.size)
-            self.ts.update_ephemeris(self.zero_epoch, self.period, self.duration, self.depth)
+                self.ts.update_ephemeris(self.zero_epoch, self.period, self.duration, self.depth)
 
 
     def add_to_fits(self, hdul: HDUList):
@@ -303,18 +304,15 @@ class TransitFitStep(OTSStep):
         fmod = self.fmod[sids]
         fobs = self.fobs[sids]
         ax.plot(24 * phase[pmask], fobs[pmask], '.', alpha=alpha)
-        ax.plot(24 * phase[pmask], fmod[pmask], 'k')
+        ax.plot(24 * phase[pmask], fmod[pmask], 'w', lw=5, alpha=0.5, zorder=99)
+        ax.plot(24 * phase[pmask], fmod[pmask], 'k', zorder=100)
 
-        if duration > 1 / 24:
-            pb, fb, eb = downsample_time(phase[pmask], fobs[pmask], phase[pmask].ptp() / nbins)
-            ax.errorbar(24 * pb, fb, eb, fmt='ok')
-            ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
-        else:
-            ylim = fobs[pmask].min(), fobs[pmask].max()
-
-        ax.text(24 * 2.5 * hdur[0], fmod.min(), f'$\Delta$F {1 - fmod.min():6.4f}', size=10, va='center',
-                bbox=dict(color='white'))
-        ax.axhline(fmod.min(), alpha=0.25, ls='--')
+        #if duration > 1 / 24:
+        pb, fb, eb = downsample_time(phase[pmask], fobs[pmask], phase[pmask].ptp() / nbins)
+        ax.errorbar(24 * pb, fb, eb, fmt='k.')
+        ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
+        #else:
+        #    ylim = fobs[pmask].min(), fobs[pmask].max()
 
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
         ax.axvline(0, alpha=0.25, ls='--', lw=1)

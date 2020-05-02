@@ -23,13 +23,13 @@ from numpy import linspace, argmax
 from .otsstep import OTSStep
 from .plots import bplot
 
-logger = getLogger("lomb-scargle-step")
-
 class LombScargleStep(OTSStep):
     """Lomb-Scargle step.
 
     Pipeline step to calculate the Lomb-Scargle periodogram.
     """
+
+    name = 'ls'
     def __init__(self, ts):
         super().__init__(ts)
 
@@ -38,12 +38,14 @@ class LombScargleStep(OTSStep):
         self.fap = None     # False alarm probability for the best-period period
 
         self.ls = None
-        self._periods = 1 / linspace(1 / self.ts.pmax, 1 / self.ts.pmin, 1000)
+        self._periods = None
         self._powers = None
         self._faps = None
 
     def __call__(self):
-        logger.info("Running Lomb-Scargle periodogram")
+        self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
+        self.logger.info("Running Lomb-Scargle periodogram")
+        self._periods = 1 / linspace(1 / self.ts.pmax, 1 / self.ts.pmin, 1000)
         self.ls = LombScargle(self.ts.time, self.ts.flux)
         self._powers = self.ls.power(1 / self._periods)
         self._faps = self.ls.false_alarm_probability(self._powers)
@@ -51,7 +53,7 @@ class LombScargleStep(OTSStep):
         self.period = self._periods[i]
         self.power = self._powers[i]
         self.fap = self._faps[i]
-        logger.info(f"LS period {self.period:.2f}, power {self.power:.4f}, FAP {self.fap:.4f}")
+        self.logger.info(f"LS period {self.period:.2f}, power {self.power:.4f}, FAP {self.fap:.4f}")
 
     def add_to_fits(self, hdul: HDUList):
         if self.ls is not None:
@@ -65,8 +67,12 @@ class LombScargleStep(OTSStep):
 
     @bplot
     def plot_power(self, ax=None):
-        ax.semilogx(self._periods, self._powers, drawstyle='steps-mid')
+        if self.period < 1.:
+            ax.semilogx(self._periods, self._powers, drawstyle='steps-mid')
+        else:
+            ax.plot(self._periods, self._powers, drawstyle='steps-mid')
+
+        ax.axvline(self.period, alpha=0.15, c='orangered', ls='-', lw=10, zorder=-100)
+        ax.axvline(self.period, alpha=0.5, ls='--', lw=2)
         ax.autoscale(axis='x', tight=True)
-        ax.text(0.81, 0.93, f"Period {self.period:5.2f} d\nFAP    {self.fap:5.2f}", va='top',
-                family='monospace', transform=ax.transAxes, bbox=dict(facecolor='w'))
         setp(ax, xlabel='Period [d]', ylabel='LS Power')

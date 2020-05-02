@@ -23,7 +23,7 @@ from scipy.ndimage import binary_dilation, median_filter as mf
 from .transitsearch import TransitSearch
 
 
-class K2TransitSearch(TransitSearch):
+class K2SCTS(TransitSearch):
 
     def _reader(self, filename: Path):
         d = pf.getdata(filename, 1)

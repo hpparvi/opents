@@ -25,12 +25,12 @@ from pytransit.orbits import epoch
 from .otsstep import OTSStep
 from .plots import bplot
 
-logger = getLogger("bls-step")
 
 class BLSStep(OTSStep):
+    name = "bls"
     def __init__(self, ts):
         super().__init__(ts)
-        self._periods = linspace(self.ts.pmin, self.ts.pmax, self.ts.nper)
+        self._periods = None
         self._durations = array([0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]) / 24
         self.bls = None
         self.result = None
@@ -41,7 +41,9 @@ class BLSStep(OTSStep):
         self.snr = None         # Best-fit Signal to noise ratio
 
     def __call__(self, *args, **kwargs):
-        logger.info("Running BLS periodogram")
+        self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
+        self.logger.info("Running BLS periodogram")
+        self._periods = linspace(self.ts.pmin, self.ts.pmax, self.ts.nper)
         self.bls = BoxLeastSquares(self.ts.time * u.day, self.ts.flux, self.ts.ferr)
         self.result = self.bls.power(self._periods, self._durations, objective='snr')
         i = argmax(self.result.depth_snr)
@@ -53,7 +55,7 @@ class BLSStep(OTSStep):
         ep = epoch(self.ts.time.min(), t0, self.period)
         self.zero_epoch = t0 + ep * self.period
         self.ts.update_ephemeris(self.zero_epoch, self.period, self.duration, self.depth)
-        logger.info(f"BLS SNR {self.snr:.2f} period {self.period:.2f} d, duration {24*self.duration:.2f} h")
+        self.logger.info(f"BLS SNR {self.snr:.2f} period {self.period:.2f} d, duration {24*self.duration:.2f} h")
 
     def add_to_fits(self, hdul: HDUList):
         if self.bls is not None:
@@ -69,9 +71,11 @@ class BLSStep(OTSStep):
 
     @bplot
     def plot_snr(self, ax=None):
-        ax.semilogx(self._periods, self.result.depth_snr, drawstyle='steps-mid')
-        ax.axvline(self.period, alpha=0.5, ls='--', lw=2)
+        if self.period < 1.:
+            ax.semilogx(self._periods, self.result.depth_snr, drawstyle='steps-mid')
+        else:
+            ax.plot(self._periods, self.result.depth_snr, drawstyle='steps-mid')
+
+        ax.axvline(self.period, alpha=0.15, c='orangered', ls='-', lw=10, zorder=-100)
         setp(ax, xlabel='Period [d]', ylabel='Depth SNR')
         ax.autoscale(axis='x', tight=True)
-        ax.text(0.81, 0.93, f"Period  {self.period:5.2f} d\nSNR     {self.snr:5.2f}", va='top',
-                transform=ax.transAxes, bbox=dict(facecolor='w'), family='monospace', )
