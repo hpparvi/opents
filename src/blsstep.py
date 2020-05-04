@@ -19,12 +19,14 @@ from astropy import units as u
 from astropy.io.fits import HDUList, Card
 from astropy.timeseries import BoxLeastSquares
 from matplotlib.pyplot import setp
-from numpy import linspace, argmax, array
+from numpy import linspace, argmax, array, exp
 from pytransit.orbits import epoch
 
 from .otsstep import OTSStep
 from .plots import bplot
 
+def maskf(x, c, w):
+    return (1 - exp(-(x-c)**2/w**2))**4
 
 class BLSStep(OTSStep):
     name = "bls"
@@ -46,6 +48,9 @@ class BLSStep(OTSStep):
         self._periods = linspace(self.ts.pmin, self.ts.pmax, self.ts.nper)
         self.bls = BoxLeastSquares(self.ts.time * u.day, self.ts.flux, self.ts.ferr)
         self.result = self.bls.power(self._periods, self._durations, objective='snr')
+        for p in self.ts.masked_periods:
+            self.result.depth_snr *= maskf(self._periods, p, .1)
+            self.result.log_likelihood *= maskf(self._periods, p, .1)
         i = argmax(self.result.depth_snr)
         self.period = self.result.period[i].value
         self.snr = self.result.depth_snr[i]

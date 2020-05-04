@@ -25,7 +25,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.pyplot import setp, figure, subplot
 from matplotlib.transforms import offset_copy
-from numpy import log, pi, argsort, unique, ndarray, percentile, array
+from numpy import log, pi, argsort, unique, ndarray, percentile, array, concatenate
 from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 from pytransit.lpf.tesslpf import downsample_time
@@ -70,8 +70,6 @@ class TSData:
         return self._ferr[-1]
 
 
-
-
 class TransitSearch:
     def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
@@ -98,6 +96,7 @@ class TransitSearch:
         self.gp_result = None
         self.gp_periodicity = None
 
+        self.masked_periods = []
         self.logger = None
         self._data = None
         self._steps = []
@@ -203,6 +202,13 @@ class TransitSearch:
         flux = self.flux.copy()
         flux[mask] /= self.transit_fits['all'].ftra
         self.update_data(f'Removed planet {self.planet - 1}', self.time, flux, self.ferr)
+
+        # Period masking
+        # --------------
+        # We mask the current period +- 0.5 days from the next search. This is necessary in the cases
+        # where we have a poorly-fit EB. Removing the model can still leave a signal that is strong enough
+        # for the pipeline to find it again and again and again...
+        self.masked_periods.append(self.period)
 
     # FITS output
     # ===========
