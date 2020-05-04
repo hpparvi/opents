@@ -23,12 +23,14 @@ from numba import njit
 import pandas as pd
 from astropy.table import Table
 from matplotlib.pyplot import setp
-from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate
+from numpy.random import uniform
+from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate, sqrt
 from numpy.core._multiarray_umath import floor, zeros, log, pi, array, sin
 from pytransit import QuadraticModelCL, QuadraticModel, BaseLPF
+from pytransit.lpf.lpf import map_ldc
 from pytransit.lpf.tesslpf import downsample_time
-from pytransit.orbits import epoch
-from pytransit.param import LParameter, UniformPrior as UP, PParameter
+from pytransit.orbits import epoch, as_from_rhop, i_from_ba, i_from_baew, d_from_pkaiews
+from pytransit.param import LParameter, UniformPrior as UP, NormalPrior as NP, PParameter, GParameter
 from pytransit.utils.misc import fold
 from scipy.interpolate import interp1d
 
@@ -99,12 +101,52 @@ class SineBaseline:
         return squeeze(bl)
 
 
+class EvenOddBaseline:
+    def __init__(self, lpf, name: str = 'eobl', lcids=None):
+        self.name = name
+        self.lpf = lpf
+        if lpf.lcids is None:
+            raise ValueError('The LPF data needs to be initialised before initialising EvenOddBaseline.')
+
+        self.init_data(lcids)
+        self.init_parameters()
+
+    def init_data(self, lcids=None):
+        self.aeo = (self.lpf.epochs % 2).astype(int)
+
+    def init_parameters(self):
+        bls = []
+        bls.append(LParameter(f'ble', f'Even baseline level', '', NP(0.0, 0.01), bounds=(-inf, inf)))
+        bls.append(LParameter(f'blo', f'Odd baseline level', '',  NP(0.0, 0.01), bounds=(-inf, inf)))
+        self.lpf.ps.thaw()
+        self.lpf.ps.add_global_block(self.name, bls)
+        self.lpf.ps.freeze()
+        self.pv_slice = self.lpf.ps.blocks[-1].slice
+        self.pv_start = self.lpf.ps.blocks[-1].start
+        setattr(self.lpf, f"_sl_{self.name}", self.pv_slice)
+        setattr(self.lpf, f"_start_{self.name}", self.pv_start)
+
+    def __call__(self, pvp, bl: Optional[ndarray] = None):
+        pvp = atleast_2d(pvp)
+        if bl is None:
+            bl = ones((pvp.shape[0], self.time.size))
+        else:
+            bl = atleast_2d(bl)
+
+        bl += pvp[:, self.pv_slice][:, self.aeo]
+        return squeeze(bl)
+
 class SearchLPF(BaseLPF):
+    def __init__(self, times, fluxes, epochs, tm, nsamples, exptimes, tref):
+        self.epochs = epochs
+        super().__init__('transit_fit', [''], times=times, fluxes=fluxes, tm=tm,
+                         nsamples=nsamples, exptimes=exptimes, tref=tref)
+
     # def _init_lnlikelihood(self):
     #    self._add_lnlikelihood_model(CeleriteLogLikelihood(self))
 
     def _init_baseline(self):
-        self._add_baseline_model(SineBaseline(self, n=1))
+        self._add_baseline_model(EvenOddBaseline(self))
 
     def _init_p_limb_darkening(self):
         pld = concatenate([
@@ -114,6 +156,41 @@ class SearchLPF(BaseLPF):
         self.ps.add_passband_block('ldc', 2, self.npb, pld)
         self._sl_ld = self.ps.blocks[-1].slice
         self._start_ld = self.ps.blocks[-1].start
+
+    def _init_p_orbit(self):
+        """Orbit parameter initialisation.
+        """
+        porbit = [
+            GParameter('tc',  'zero epoch',       'd',      NP(0.0,  0.1), (-inf, inf)),
+            GParameter('p',   'period',           'd',      NP(1.0, 1e-5), (0,    inf)),
+            GParameter('rho', 'stellar density',  'g/cm^3', UP(0.1, 25.0), (0,    inf)),
+            GParameter('g',   'grazing parameter', 'R_s',   UP(0.0,  1.0), (0,      1))]
+        self.ps.add_global_block('orbit', porbit)
+
+    def create_pv_population(self, npop=50):
+        return self.ps.sample_from_prior(npop)
+
+    def transit_model(self, pv, copy=True):
+        pv = atleast_2d(pv)
+        ldc = map_ldc(pv[:, self._sl_ld])
+        zero_epoch = pv[:, 0] - self._tref
+        period = pv[:, 1]
+        radius_ratio = sqrt(pv[:, 4:5])
+        smaxis = as_from_rhop(pv[:, 2], period)
+        impact_parameter = pv[:, 3] * (1 + radius_ratio)[:,0]
+        inclination = i_from_ba(impact_parameter, smaxis)
+        return self.tm.evaluate(radius_ratio, ldc, zero_epoch, period, smaxis, inclination)
+
+    def posterior_samples(self, burn: int = 0, thin: int = 1, derived_parameters: bool = True):
+        df = super().posterior_samples(burn=burn, thin=thin, derived_parameters=False)
+        if derived_parameters:
+            df['k'] = sqrt(df.k2)
+            df['a'] = as_from_rhop(df.rho.values, df.p.values)
+            df['b'] = df.g * (1 + df.k)
+            df['inc'] = i_from_ba(df.b.values, df.a.values)
+            df['t14'] = d_from_pkaiews(df.p.values, df.k.values, df.a.values, df.inc.values, 0., 0., 1, kind=14)
+            df['t23'] = d_from_pkaiews(df.p.values, df.k.values, df.a.values, df.inc.values, 0., 0., 1, kind=23)
+        return df
 
 class TransitFitStep(OTSStep):
     name = "tf"
@@ -165,23 +242,27 @@ class TransitFitStep(OTSStep):
 
         self.ts.transit_fit_masks[self.mode] = self.mask = mask
 
-        epochs = epochs[mask]
+        self.epochs = epochs = epochs[mask]
         self.time = self.ts.time[mask]
         self.fobs = self.ts.flux[mask]
 
         tref = floor(self.time.min())
         tm = QuadraticModelCL(klims=(0.01, 0.60)) if self.use_opencl else QuadraticModel(interpolate=False)
-        self.lpf = lpf = SearchLPF('transit_fit', [''], times=self.time, fluxes=self.fobs, tm=tm,
+        self.lpf = lpf = SearchLPF(times=self.time, fluxes=self.fobs, epochs=epochs, tm=tm,
                         nsamples=self.nsamples, exptimes=self.exptime, tref=tref)
 
+        # TODO: V-shaped transits are not always modelled well. Need to set smarter priors (or starting population)
+        #       for the impact parameter and stellar density.
+        lpf.set_prior('rho', 'UP', 0.01, 25)
         if self.mode == 'all':
+            d  = self.ts.depth
             lpf.set_prior('tc', 'NP', self.ts.zero_epoch, 0.01)
-            lpf.set_prior('p', 'NP', self.ts.period, 0.001)
-            lpf.set_prior('k2', 'UP', 0.5 * self.ts.depth, 2 * self.ts.depth)
+            lpf.set_prior('p',  'NP', self.ts.period, 0.001)
+            lpf.set_prior('k2', 'UP', max(0.01**2, 0.5*d), min(max(0.08**2, 4*d), 0.75**2))
         else:
             pr = self.ts.tf_all.parameters
             lpf.set_prior('tc', 'NP', pr.tc.med, pr.tc.err)
-            lpf.set_prior('p', 'NP', pr.p.med, pr.p.err)
+            lpf.set_prior('p',  'NP', pr.p.med, pr.p.err)
             lpf.set_prior('k2', 'UP', max(0.01**2, 0.5 * pr.k2.med), max(0.08**2, min(0.6**2, 2 * pr.k2.med)))
             lpf.set_prior('q1', 'NP', pr.q1.med, pr.q1.err)
             lpf.set_prior('q2', 'NP', pr.q2.med, pr.q2.err)
@@ -205,6 +286,7 @@ class TransitFitStep(OTSStep):
             self.phase = fold(self.time, pv[1], pv[0], 0.5) * pv[1] - 0.5 * pv[1]
             self.fmod = lpf.flux_model(pv)
             self.ftra = lpf.transit_model(pv)
+            self.fbase = lpf.baseline(pv)
 
             # Calculate the per-orbit log likelihood differences
             # --------------------------------------------------
@@ -252,10 +334,10 @@ class TransitFitStep(OTSStep):
             h.append(Card(f'TF{c}_BE', p.b.err, 'Impact parameter uncertainty'), bottom=True)
             h.append(Card(f'TF{c}_AR', p.k2.med, 'Area ratio'), bottom=True)
             h.append(Card(f'TF{c}_ARE', p.k2.err, 'Area ratio uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_SC', p.c_sin.med, 'Sine phase'), bottom=True)
-            h.append(Card(f'TF{c}_SCE', p.c_sin.err, 'Sine phase uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_SA', p.a_sin_0.med, 'Sine amplitude'), bottom=True)
-            h.append(Card(f'TF{c}_SAE', p.a_sin_0.err, 'Sine amplitude uncertainty'), bottom=True)
+            #h.append(Card(f'TF{c}_SC', p.c_sin.med, 'Sine phase'), bottom=True)
+            #h.append(Card(f'TF{c}_SCE', p.c_sin.err, 'Sine phase uncertainty'), bottom=True)
+            #h.append(Card(f'TF{c}_SA', p.a_sin_0.med, 'Sine amplitude'), bottom=True)
+            #h.append(Card(f'TF{c}_SAE', p.a_sin_0.err, 'Sine amplitude uncertainty'), bottom=True)
             h.append(Card(f'TF{c}_RR', p.k.med, 'Radius ratio'), bottom=True)
             h.append(Card(f'TF{c}_RRE', p.k.err, 'Radius ratio uncertainty'), bottom=True)
             h.append(Card(f'TF{c}_A', p.a.med, 'Semi-major axis'), bottom=True)
@@ -301,8 +383,13 @@ class TransitFitStep(OTSStep):
         if pmask.sum() < 100:
             alpha = 1
 
-        fmod = self.fmod[sids]
-        fobs = self.fobs[sids]
+        if self.mode == 'all':
+            fmod = self.ftra[sids]
+            fobs = self.fobs[sids] / self.fbase[sids]
+        else:
+            fmod = self.fmod[sids]
+            fobs = self.fobs[sids]
+
         ax.plot(24 * phase[pmask], fobs[pmask], '.', alpha=alpha)
         ax.plot(24 * phase[pmask], fmod[pmask], 'w', lw=5, alpha=0.5, zorder=99)
         ax.plot(24 * phase[pmask], fmod[pmask], 'k', zorder=100)
@@ -320,19 +407,3 @@ class TransitFitStep(OTSStep):
 
         ax.autoscale(axis='x', tight='true')
         setp(ax, ylim=ylim, xlabel='Phase [h]', ylabel='Normalised flux')
-
-    @bplot
-    def plot_folded_and_binned_lc(self, ax=None, nbins: int = 100):
-        phase = self.phase
-        sids = argsort(phase)
-        phase = phase[sids]
-        flux_o = self.fobs[sids]
-        flux_m = self.fmod[sids]
-
-        pb, fb, eb = downsample_time(phase, flux_o, phase.ptp() / nbins)
-        _, fob, _ = downsample_time(phase, flux_m, phase.ptp() / nbins)
-
-        ax.errorbar(pb, fb, eb)
-        ax.plot(pb, fob, 'k')
-        ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel='Phase [d]', ylabel='Normalized flux')
