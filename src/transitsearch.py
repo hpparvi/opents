@@ -293,8 +293,8 @@ class TransitSearch:
         footheight = 0.03
         footpad = 0.04
 
-        fig = figure(figsize=(16, 17))
-        gs = GridSpec(7, 4, figure=fig, wspace=0.4, hspace=0.5,
+        fig = figure(figsize=(16, 19))
+        gs = GridSpec(8, 4, figure=fig, wspace=0.4, hspace=0.5,
                       left=lmargin, right=1 - rmargin, bottom=footheight + footpad, top=1 - headheight - headpad)
 
         header = fig.add_axes((0, 1 - headheight, 1, headheight), frame_on=False, xticks=[], yticks=[])
@@ -372,6 +372,14 @@ class TransitSearch:
                  bbox=dict(facecolor='w'))
         setp(atm.get_yticklabels(), visible=False)
 
+        # Parameter posteriors
+        # --------------------
+        gs_posteriors = gs[7,:].subgridspec(3, 5, hspace=0, wspace=0.01)
+        aposteriors = array([[subplot(gs_posteriors[j, i]) for i in range(5)] for j in range(3)])
+        self.plot_posteriors(aposteriors)
+        aposteriors[0,0].text(0.02, 1, 'Parameter posteriors', va='center', transform=aposteriors[0,0].transAxes, size=11,
+                  bbox=dict(facecolor='w'))
+
         fig.lines.extend([
             Line2D([0, 1], [1, 1], lw=10, transform=fig.transFigure, figure=fig),
             Line2D([0, 1], [1 - headheight, 1 - headheight], lw=10, transform=fig.transFigure, figure=fig),
@@ -385,7 +393,6 @@ class TransitSearch:
         fig.align_ylabels([aflux, abls, als, adll, adllc, apvp])
         fig.align_ylabels([atr, aor, ato, apvt])
         return fig
-
 
     def plot_header(self, ax):
         ax.text(0.01, 0.85, f"{self.name.replace('_', ' ')} - Candidate {self.planet}", size=33, va='top', weight='bold')
@@ -411,7 +418,7 @@ class TransitSearch:
         for marker, model in zip('ox', ('even', 'odd')):
             tf = self.transit_fits[model]
             ax.plot(tf.dll_epochs, tf.dll_values, ls='', marker=marker, label=model)
-        ax.axhline(0, c='k', ls='--', alpha=0.25, lw=1)
+        #ax.axhline(0, c='k', ls='--', alpha=0.25, lw=1)
         ax.legend(loc='upper right')
         ax.autoscale(axis='x', tight=True)
         setp(ax, xlabel='Epoch', ylabel="$\Delta$ log likelihood")
@@ -441,7 +448,7 @@ class TransitSearch:
             phase = m.phase[sids]
             pmask = abs(phase) < 1.5 * self.duration
             phase = phase[pmask]
-            fmod = m.ftra[sids][pmask]
+            fmod = m.fmod[sids][pmask]
             fobs = m.fobs[sids][pmask]
 
             pb, fb, eb = downsample_time(phase, fobs, phase.ptp() / nbins)
@@ -454,3 +461,36 @@ class TransitSearch:
 
         setp(axs[0], ylabel='Normalized flux')
         setp(axs, xlabel='Phase [h]')
+
+    def plot_posteriors(self, axs):
+        df = self.tf_all.lpf.posterior_samples()
+        dfe = self.tf_even.lpf.posterior_samples()
+        dfo = self.tf_odd.lpf.posterior_samples()
+
+        for d in (df,dfe,dfo):
+            d['t14'] *= 24
+
+        def plotp(data, ax, c='C0'):
+            p = percentile(data, [50, 16, 84, 2.5, 97.5])
+            ax.axvspan(*p[3:5], alpha=0.5, fc=c)
+            ax.axvspan(*p[1:3], alpha=0.5, fc=c)
+            ax.axvline(p[0], c='k')
+
+        for i, l in enumerate('b rho k t14'.split()):
+            for j,d in enumerate((df, dfe, dfo)):
+                plotp(d[l], axs[j,i])
+            setp(axs[:,i], xlim=percentile(concatenate([df[l].values, dfe[l].values, dfo[l].values]), [1, 99]))
+
+        plotp(df['ble'], axs[0, 4])
+        plotp(df['blo'], axs[0, 4], c='C1')
+        plotp(dfe['ble'], axs[1, 4])
+        plotp(dfo['blo'], axs[2, 4], c='C1')
+        av = concatenate([df['ble'].values, df['blo'].values, dfo['blo'].values, dfe['ble'].values])
+        setp(axs[:,4], xlim=percentile(av, [1, 99]))
+
+        setp(axs, yticks=[])
+        setp(axs[:-1, :], xticks=[])
+        for ax, label in zip(axs[-1], 'Impact parameter, Stellar density [g/cm$^3$], Radius ratio, Duration [h], Eve-Odd baseline'.split(', ')):
+            ax.set_xlabel(label)
+        for ax, label in zip(axs[:, 0], 'all even odd'.split()):
+            ax.set_ylabel(label)
