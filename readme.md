@@ -26,6 +26,10 @@ where ``X`` is the number of nodes to use.
 By default, the search is carried our for all the targets in ``data_directory``,
 combining all the TESS sectors or K2 Campaigns for each target. 
 
+## Example output
+
+![](notebooks/TIC_120916706_01.png)
+
 ## Authors
 
 - Hannu Parviainen
