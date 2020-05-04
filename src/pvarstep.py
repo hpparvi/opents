@@ -75,7 +75,7 @@ class PVarStep(OTSStep):
             self.logger.info("Found and removed a periodic signal")
             self.model_removed = True
             flux = self.ts.flux - self.pvar_model + 1
-            #self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
+            self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
         else:
             self.model_removed = False
             if self.pvar_is_sigificant:
