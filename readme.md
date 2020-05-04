@@ -13,7 +13,18 @@ Pope et al. (2016).
 
 ## Usage
 
-    mpirun -n X tessts
+At its simplest, the transit search can be run as
+
+    opents data_directory
+
+or as 
+
+    mpirun -n X opents data_directory
+    
+where ``X`` is the number of nodes to use.
+
+By default, the search is carried our for all the targets in ``data_directory``,
+combining all the TESS sectors or K2 Campaigns for each target. 
 
 ## Authors
 
