@@ -62,6 +62,8 @@ def dip_significance(phase: ndarray, flux: ndarray, p0: float = None, tdur: floa
     flux = -(flux - flux.max())
     flux /= flux.sum()
     period = phase.ptp()
+    if tdur > 0.3*period:
+        tdur = 0.3*period
     p0 = p0 if p0 is not None else phase[argmax(flux)]
     phase = phase - p0
     pphase = concatenate([phase, phase+period])

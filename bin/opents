@@ -32,6 +32,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import sys
 import logging
 from logging import info
@@ -44,6 +45,7 @@ from tqdm import tqdm
 from numba import set_num_threads
 
 MPI_ROOT = 0
+
 
 try:
     from mpi4py import MPI
@@ -83,9 +85,9 @@ def run_mpi_master_node(args):
     free_workers: List = list(range(1, size))
     active_workers: List = []
 
-    n_files: int = len(targets)
+    n_targets: int = len(targets)
     n_finished_files: int = 0
-    with tqdm(desc='Transit search', total=n_files) as pbar:
+    with tqdm(desc='Transit search', total=n_targets) as pbar:
         while targets or active_workers:
             while targets and free_workers:
                 w = free_workers.pop(0)
@@ -114,8 +116,8 @@ def run_mpi_worker_node(args):
             comm.send(1, dest=MPI_ROOT, tag=2)
 
 
-def run_search(TSC, files: Union[List[Path], Path, str], args):
-    ts: TransitSearch = TSC(bic_limit=args.bic_limit, use_tqdm=False)
+def run_search(TSC, files: Union[List[Path], Path, str], args, parallel=True):
+    ts: TransitSearch = TSC(bic_limit=args.bic_limit, use_tqdm=not parallel)
     ts.read_data(files)
     for i in range(args.max_planets):
         ts.run()
@@ -192,7 +194,7 @@ if __name__ == '__main__':
         logger.handlers[-1].flush()
         print('', flush=True)
         for target in tqdm(targets, desc='Transit search'):
-            run_search(TSC, files[target], args)
+            run_search(TSC, files[target], args, parallel=False)
 
     # MPI branch
     # ----------
