@@ -32,6 +32,8 @@ from pytransit.lpf.tesslpf import downsample_time
 
 from typing import Optional, List, Union, Dict
 
+from tqdm.auto import tqdm
+
 from .celeritestep import CeleriteStep
 from .plots import bplot
 from .blsstep import BLSStep
@@ -187,7 +189,7 @@ class TransitSearch:
         -------
         None
         """
-        for step in self._steps:
+        for step in tqdm(self._steps, desc=f"{self.name} {self.planet:>2d}", leave=False, disable=not self.use_tqdm, position=1):
             step()
 
     def next_planet(self):
@@ -479,14 +481,20 @@ class TransitSearch:
         for i, l in enumerate('b rho k t14'.split()):
             for j,d in enumerate((df, dfe, dfo)):
                 plotp(d[l], axs[j,i])
-            setp(axs[:,i], xlim=percentile(concatenate([df[l].values, dfe[l].values, dfo[l].values]), [1, 99]))
+            try:
+                setp(axs[:,i], xlim=percentile(concatenate([df[l].values, dfe[l].values, dfo[l].values]), [1, 99]))
+            except ValueError:
+                pass
 
         plotp(df['ble'], axs[0, 4])
         plotp(df['blo'], axs[0, 4], c='C1')
         plotp(dfe['ble'], axs[1, 4])
         plotp(dfo['blo'], axs[2, 4], c='C1')
         av = concatenate([df['ble'].values, df['blo'].values, dfo['blo'].values, dfe['ble'].values])
-        setp(axs[:,4], xlim=percentile(av, [1, 99]))
+        try:
+            setp(axs[:,4], xlim=percentile(av, [1, 99]))
+        except ValueError:
+            pass
 
         setp(axs, yticks=[])
         setp(axs[:-1, :], xticks=[])

@@ -279,7 +279,7 @@ class TransitFitStep(OTSStep):
             return
         else:
             lpf.optimize_global(niter=de_niter, npop=npop, use_tqdm=self.use_tqdm, plot_convergence=False)
-            lpf.sample_mcmc(mcmc_niter, repeats=mcmc_repeats, use_tqdm=self.use_tqdm)
+            lpf.sample_mcmc(mcmc_niter, repeats=mcmc_repeats, use_tqdm=self.use_tqdm, leave=False)
             df = lpf.posterior_samples(derived_parameters=True)
             df = pd.DataFrame((df.median(), df.std()), index='med err'.split())
             pv = lpf.posterior_samples(derived_parameters=False).median().values
