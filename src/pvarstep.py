@@ -17,7 +17,9 @@ from logging import getLogger
 
 from matplotlib.pyplot import setp
 from numba import njit
-from numpy import linspace, zeros_like, median, diff, percentile, fabs, log, argsort, ones, where, nan
+from numpy import linspace, zeros_like, median, diff, percentile, fabs, log, argsort, ones, where, nan, argmax, \
+    concatenate, tile, array, ndarray
+from numpy.random.mtrand import uniform
 from pytransit.utils.misc import fold
 from scipy.interpolate import interp1d
 
@@ -38,6 +40,38 @@ def running_median(xs, ys, width, nbin):
         by[i] = median(ys[m])
     return bx, by
 
+def dip_significance(phase: ndarray, flux: ndarray, p0: float = None, tdur: float = 3, nsamples: int = 150, nbl: int = 500):
+    """Calculates the significance of a dip in a phase-folded light curve.
+
+    Calculates how significant a dip in a phase-folded light curve is considering the overall variability by comparing
+    the dip "flux" integrated over a given time-span against other time spans excluding the dip.
+
+    Parameters
+    ----------
+    phase
+    flux
+    p0
+    tdur
+    nsamples
+    nbl
+
+    Returns
+    -------
+
+    """
+    flux = -(flux - flux.max())
+    flux /= flux.sum()
+    period = phase.ptp()
+    p0 = p0 if p0 is not None else phase[argmax(flux)]
+    phase = phase - p0
+    pphase = concatenate([phase, phase+period])
+    pflux = tile(flux, 2)
+    ip = interp1d(pphase, pflux)
+    xs = linspace(-0.5*tdur, 0.5*tdur, nbl)
+    samples = uniform(tdur, period-tdur, size=nsamples)
+    s0 = ip(xs).sum() / tdur
+    sbl = array([ip(xs+tc).sum() / tdur for tc in samples])
+    return (s0-sbl.mean()) / sbl.std()
 
 class PVarStep(OTSStep):
     name = 'pvar'
@@ -61,35 +95,39 @@ class PVarStep(OTSStep):
         max_slope = df.max()
         slope_percentile_ratio = ps[0] / ps[1]
 
-        self.pvar_phase = phase * self.ts.ls.period
-        self.pvar_model = pv
-        self.pvar_spr = slope_percentile_ratio
-        self.pvar_amplitude = pv_amplitude
-        self.pvar_entropy = pv_entropy
-        self.pvar_max_slope = max_slope
+        self._bp = bp
+        self._bf = bf
 
-        self.pvar_is_sigificant = pv_amplitude > 0.001
-        self.pvar_is_transit_like = slope_percentile_ratio < 0.1  # Conservative limit to make sure we're not removing transits
+        self.phase = phase * self.ts.ls.period
+        self.model = pv
+        self.spr = slope_percentile_ratio
+        self.amplitude = pv_amplitude
+        self.entropy = pv_entropy
+        self.max_slope = max_slope
+        self.peak_siginifance = dip_significance(24 * self.ts.ls.period * bp, bf)
 
-        if self.pvar_is_sigificant and not self.pvar_is_transit_like:
+        self.is_sigificant = pv_amplitude > 0.001
+        self.is_transit_like = (slope_percentile_ratio < 0.1 or self.peak_siginifance > 3.0)
+
+        if self.is_sigificant and not self.is_transit_like:
             self.logger.info("Found and removed a periodic signal")
             self.model_removed = True
-            flux = self.ts.flux - self.pvar_model + 1
+            flux = self.ts.flux - self.model + 1
             self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
         else:
             self.model_removed = False
-            if self.pvar_is_sigificant:
+            if self.is_sigificant:
                 self.logger.info("Found a periodic signal but it's too transit-like to be removed")
             else:
                 self.logger.info("Didn't find any significant periodic signals")
 
     @bplot
     def plot_over_phase(self, ax):
-        sids = argsort(self.pvar_phase)
+        sids = argsort(self.phase)
         if self.model_removed:
-            ax.plot(self.pvar_phase[sids], 1e2 * (self.pvar_model[sids] - 1))
+            ax.plot(self.phase[sids], 1e2 * (self.model[sids] - 1))
         else:
-            ax.plot(self.pvar_phase[sids], 1e2 * (self.pvar_model[sids] - 1), '--', alpha=0.5)
+            ax.plot(self.phase[sids], 1e2 * (self.model[sids] - 1), '--', alpha=0.5)
         ax.autoscale(axis='x', tight=True)
         setp(ax, xlabel='Phase [d]', ylabel='Periodic model [%]')
 
@@ -97,6 +135,6 @@ class PVarStep(OTSStep):
         mbreak = ones(self.ts.time.size, bool)
         mbreak[1:] = diff(self.ts.time) < 1
         ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.ts.flux_detrended, nan))
-        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.pvar_model, nan), 'k')
+        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.model, nan), 'k')
         setp(ax, xlabel=f'Time - {self.ts.bjdrefi} [BJD]')
         ax.autoscale(axis='x', tight=True)
