@@ -23,8 +23,8 @@ from numpy import percentile, unique, diff
 from numpy.core._multiarray_umath import ndarray
 from pytransit.orbits import epoch
 
-from src import TransitSearch
-from src.plots import bplot
+from .transitsearch import TransitSearch
+from .plots import bplot
 
 
 class TESSTS(TransitSearch):

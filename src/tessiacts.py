@@ -26,26 +26,6 @@ from .tessts import TESSTS
 class TESSIACTS(TESSTS):
     fnformat = 'lc_{}_data.npz'
 
-    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
-                 nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
-
-        self.bjdrefi: int = 2457000
-        self.sectors: List = []
-        self.files: List = []
-        self.sector = None
-        self._h0: Optional[Header] = None
-        self._h1: Optional[Header] = None
-
-        self.time_raw: Optional[ndarray] = None
-        self.time_detrended: Optional[ndarray] = None
-        self.time_flattened: Optional[ndarray] = None
-
-        self.flux_raw: Optional[ndarray] = None
-        self.flux_detrended: Optional[ndarray] = None
-        self.flux_flattened: Optional[ndarray] = None
-
-        super().__init__(pmin, pmax, nper, bic_limit, min_transits, nsamples, exptime, use_tqdm, use_opencl)
-
     # Data input
     # ==========
     # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
@@ -74,7 +54,6 @@ class TESSIACTS(TESSTS):
             return 'flux_flat' in f and 'time_flat' in f
         except:
             return False
-
 
     def _reader(self, files: Union[Path, str, List[Path]]):
         if isinstance(files, Path) or isinstance(files, str):

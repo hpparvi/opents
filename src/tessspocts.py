@@ -57,6 +57,16 @@ class TESSSPOCTS(TESSTS):
             return False
 
     def _reader(self, files: Union[Path, str, List[Path]]):
+        """Reads the data from a file or a list of files
+
+        Parameters
+        ----------
+        files: Path or List[Path]
+
+        Returns
+        -------
+        name, time, flux, ferr
+        """
         if isinstance(files, Path) or isinstance(files, str):
             files = [files]
 
