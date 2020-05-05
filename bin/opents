@@ -41,6 +41,7 @@ from typing import List, Dict, Optional, Union
 
 from matplotlib.pyplot import close
 from tqdm import tqdm
+from numba import set_num_threads
 
 MPI_ROOT = 0
 
@@ -142,11 +143,15 @@ if __name__ == '__main__':
     ap.add_argument('--dont-plot', dest='plot', action='store_false', default=True)
     ap.add_argument('--plot-format', type=str, default='png', choices=['pdf', 'png'], help='File format for plots')
     ap.add_argument('--bic-limit', type=float, default=5)
+    ap.add_argument('--n-threads', type=int, default=0)
     args = ap.parse_args()
 
     source: Path = args.source.resolve()
     dresult: Path = args.result_dir.resolve()
     dplot: Path = args.plot_dir.resolve()
+
+    if args.n_threads > 0:
+        set_num_threads(args.n_threads)
 
     if is_root:
         print("", flush=True)
