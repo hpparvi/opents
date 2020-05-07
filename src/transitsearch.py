@@ -25,7 +25,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.pyplot import setp, figure, subplot
 from matplotlib.transforms import offset_copy
-from numpy import log, pi, argsort, unique, ndarray, percentile, array, concatenate
+from numpy import log, pi, argsort, unique, ndarray, percentile, array, concatenate, isfinite
 from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 from pytransit.lpf.tesslpf import downsample_time
@@ -113,6 +113,7 @@ class TransitSearch:
         self.dbic: Optional[float] = None          # Delta BIC
 
         self.initialize_steps()
+        self.set_plot_parameters()
 
     @staticmethod
     def can_read_input(source: Path) -> bool:
@@ -125,6 +126,9 @@ class TransitSearch:
     def register_step(self, step):
         self._steps.append(step)
         return step
+
+    def set_plot_parameters(self):
+        self._tf_plot_nbins: int = 40
 
     def initialize_steps(self):
         """Initialize the pipeline steps.
@@ -337,7 +341,7 @@ class TransitSearch:
         setp(adll.get_xticklabels(), visible=False)
         setp(adll, xlabel='')
 
-        # Periodic varialibity
+        # Periodic variability
         # --------------------
         apvp = sb(gs[6, :2])
         apvt = sb(gs[6, 2:])
@@ -356,7 +360,7 @@ class TransitSearch:
         atr = sb(gs_to[0])
         aor = sb(gs_to[1], sharey=atr)
 
-        self.tf_all.plot_transit_fit(atr, nbins=40)
+        self.tf_all.plot_transit_fit(atr, nbins=self._tf_plot_nbins)
         self.plot_folded_orbit(aor)
 
         atr.text(0.02, 1, 'Phase-folded transit', va='center', transform=atr.transAxes, size=11,
@@ -430,7 +434,7 @@ class TransitSearch:
         ax.plot(self.tf_all.dll_epochs, self.tf_all.dll_values.cumsum())
         ax.plot(self.tf_even.dll_epochs, self.tf_even.dll_values.cumsum(), ls='--', alpha=0.5)
         ax.plot(self.tf_odd.dll_epochs, self.tf_odd.dll_values.cumsum(), ls='--', alpha=0.5)
-        setp(ax, xlabel='Epoch')
+        setp(ax, xlabel='Epoch', ylabel='Cumulative $\Delta$ log L')
         ax.autoscale(axis='x', tight=True)
 
     @bplot
@@ -454,6 +458,8 @@ class TransitSearch:
             fobs = m.fobs[sids][pmask]
 
             pb, fb, eb = downsample_time(phase, fobs, phase.ptp() / nbins)
+            mask = isfinite(pb)
+            pb, fb, eb = pb[mask], fb[mask], eb[mask]
             axs[0].errorbar(24 * pb, fb, eb, fmt='o-', label=ms)
             axs[1].plot(phase, fmod, label=ms)
 
