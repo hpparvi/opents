@@ -66,8 +66,8 @@ def dip_significance(phase: ndarray, flux: ndarray, p0: float = None, tdur: floa
         tdur = 0.3*period
     p0 = p0 if p0 is not None else phase[argmax(flux)]
     phase = phase - p0
-    pphase = concatenate([phase, phase+period])
-    pflux = tile(flux, 2)
+    pphase = concatenate([phase-period, phase, phase+period])
+    pflux = tile(flux, 3)
     ip = interp1d(pphase, pflux)
     xs = linspace(-0.5*tdur, 0.5*tdur, nbl)
     samples = uniform(tdur, period-tdur, size=nsamples)
@@ -138,5 +138,5 @@ class PVarStep(OTSStep):
         mbreak[1:] = diff(self.ts.time) < 1
         ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.ts.flux_detrended, nan))
         ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.model, nan), 'k')
-        setp(ax, xlabel=f'Time - {self.ts.bjdrefi} [BJD]')
+        setp(ax, xlabel=f'Time - {self.ts.bjdrefi} [BJD]', ylabel='Normalized flux')
         ax.autoscale(axis='x', tight=True)

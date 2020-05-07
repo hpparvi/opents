@@ -255,7 +255,7 @@ class TransitFitStep(OTSStep):
         #       for the impact parameter and stellar density.
         lpf.set_prior('rho', 'UP', 0.01, 25)
         if self.mode == 'all':
-            d  = self.ts.depth
+            d  = min(self.ts.depth, 0.75)
             lpf.set_prior('tc', 'NP', self.ts.zero_epoch, 0.01)
             lpf.set_prior('p',  'NP', self.ts.period, 0.001)
             lpf.set_prior('k2', 'UP', max(0.01**2, 0.5*d), min(max(0.08**2, 4*d), 0.75**2))
@@ -317,6 +317,8 @@ class TransitFitStep(OTSStep):
 
 
     def add_to_fits(self, hdul: HDUList):
+        def fn(v):
+            return v if isfinite(v) else -1
         if self.lpf is not None:
             p = self.parameters
             c = self.mode[0]
@@ -342,15 +344,13 @@ class TransitFitStep(OTSStep):
             h.append(Card(f'TF{c}_RRE', p.k.err, 'Radius ratio uncertainty'), bottom=True)
             h.append(Card(f'TF{c}_A', p.a.med, 'Semi-major axis'), bottom=True)
             h.append(Card(f'TF{c}_AE', p.a.err, 'Semi-major axis uncertainty'), bottom=True)
-            h.append(Card(f'TF{c}_T14', p.t14.med, 'Transit duration T14 [d]'), bottom=True)
-            h.append(Card(f'TF{c}_T14E', p.t14.err, 'Transit duration T14 uncertainty [d]'), bottom=True)
+            h.append(Card(f'TF{c}_T14', fn(p.t14.med), 'Transit duration T14 [d]'), bottom=True)
+            h.append(Card(f'TF{c}_T14E', fn(p.t14.err), 'Transit duration T14 uncertainty [d]'), bottom=True)
+            h.append(Card(f'TF{c}_T23', fn(p.t23.med), 'Transit duration T23 [d]'), bottom=True)
+            h.append(Card(f'TF{c}_T23E', fn(p.t23.err), 'Transit duration T23 uncertainty [d]'), bottom=True)
             if isfinite(p.t23.med) and isfinite(p.t23.err):
-                h.append(Card(f'TF{c}_T23', p.t23.med, 'Transit duration T23 [d]'), bottom=True)
-                h.append(Card(f'TF{c}_T23E', p.t23.err, 'Transit duration T23 uncertainty [d]'), bottom=True)
                 h.append(Card(f'TF{c}_TDR', p.t23.med / p.t14.med, 'T23 to T14 ratio'), bottom=True)
             else:
-                h.append(Card(f'TF{c}_T23', 0, 'Transit duration T23 [d]'), bottom=True)
-                h.append(Card(f'TF{c}_T23E', 0, 'Transit duration T23 uncertainty [d]'), bottom=True)
                 h.append(Card(f'TF{c}_TDR', 0, 'T23 to T14 ratio'), bottom=True)
             h.append(Card(f'TF{c}_WN', 10 ** p.wn_loge_0.med, 'White noise std'), bottom=True)
             h.append(Card(f'TF{c}_GRAZ', p.b.med + p.k.med > 1., 'Is the transit grazing'), bottom=True)
@@ -394,11 +394,13 @@ class TransitFitStep(OTSStep):
         ax.plot(24 * phase[pmask], fmod[pmask], 'w', lw=5, alpha=0.5, zorder=99)
         ax.plot(24 * phase[pmask], fmod[pmask], 'k', zorder=100)
 
-        #if duration > 1 / 24:
+        # if duration > 1 / 24:
         pb, fb, eb = downsample_time(phase[pmask], fobs[pmask], phase[pmask].ptp() / nbins)
+        mask = isfinite(pb)
+        pb, fb, eb = pb[mask], fb[mask], eb[mask]
         ax.errorbar(24 * pb, fb, eb, fmt='k.')
         ylim = fb.min() - 2 * eb.max(), fb.max() + 2 * eb.max()
-        #else:
+        # else:
         #    ylim = fobs[pmask].min(), fobs[pmask].max()
 
         ax.get_yaxis().get_major_formatter().set_useOffset(False)
