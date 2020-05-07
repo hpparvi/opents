@@ -41,14 +41,15 @@ from argparse import ArgumentParser
 from typing import List, Dict, Optional, Union
 
 from matplotlib.pyplot import close
+from numpy import fromfile
 from tqdm import tqdm
 from numba import set_num_threads
 
 MPI_ROOT = 0
 
-
 try:
     from mpi4py import MPI
+
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -76,7 +77,7 @@ def run_mpi_master_node(args):
     TSC: TransitSearch = select_ts_class(args.source)
     logger.info(f"Chose {TSC.__name__} transit search class")
     files: Dict = TSC.gather_data(args.source, target=args.target)
-    targets: List = sorted(files.keys())
+    targets: List = list(sorted(files.keys()) if args.target_file is None else fromfile(args.target_file, dtype=int, sep=' '))
 
     logger.info(f"Found {len(targets)} target{'s' if len(targets) > 1 else ''}")
     logger.handlers[-1].flush()
@@ -97,6 +98,7 @@ def run_mpi_master_node(args):
 
             for w in active_workers:
                 if comm.Iprobe(w, 2):
+                    comm.recv(source=w, tag=2)
                     free_workers.append(w)
                     active_workers.remove(w)
                     n_finished_files += 1
@@ -107,37 +109,41 @@ def run_mpi_master_node(args):
 
 
 def run_mpi_worker_node(args):
-        while True:
-            fname = comm.recv(source=MPI_ROOT, tag=0)
-            if fname == -1:
-                break
-            TSC = comm.recv(source=MPI_ROOT, tag=0)
-            run_search(TSC, fname, args)
-            comm.send(1, dest=MPI_ROOT, tag=2)
+    while True:
+        fname = comm.recv(source=MPI_ROOT, tag=0)
+        if fname == -1:
+            break
+        TSC = comm.recv(source=MPI_ROOT, tag=0)
+        run_search(TSC, fname, args)
+        comm.send(1, dest=MPI_ROOT, tag=2)
 
 
 def run_search(TSC, files: Union[List[Path], Path, str], args, parallel=True):
-    ts: TransitSearch = TSC(bic_limit=args.bic_limit, use_tqdm=not parallel)
+    ts: TransitSearch = TSC(pmin=args.p_min, bic_limit=args.bic_limit, use_tqdm=not parallel)
     ts.read_data(files)
+    #try:
     for i in range(args.max_planets):
         ts.run()
         ts.save_fits(args.result_dir)
 
         if args.plot:
             fig = ts.plot_report()
-            fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet}.{args.plot_format}")
+            fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet:02d}.{args.plot_format}")
             close(fig)
 
         if ts.dbic > args.bic_limit:
             ts.next_planet()
         else:
             break
+    #except:
+    #    logger.error(f"Something went wrong with {ts.name}")
 
 
 if __name__ == '__main__':
     ap = ArgumentParser(description="OpenTS: Open exoplanet transit search pipeline")
     ap.add_argument('source', default='.', type=Path)
-    ap.add_argument('--target', default=None, type=int)
+    ap.add_argument('--target', default=None, type=int, help='Single target id')
+    ap.add_argument('--target-file', default=None, type=Path, help='Text file with space-separated target ids')
     ap.add_argument('--glob-pattern', type=str, default="*", help="Filename glob pattern")
     ap.add_argument('--max-planets', type=int, default=5, help='Maximum number of planets to search for in a system.')
     ap.add_argument('--result-dir', default='.', type=Path)
@@ -146,6 +152,7 @@ if __name__ == '__main__':
     ap.add_argument('--plot-format', type=str, default='png', choices=['pdf', 'png'], help='File format for plots')
     ap.add_argument('--bic-limit', type=float, default=5)
     ap.add_argument('--n-threads', type=int, default=0)
+    ap.add_argument('--p-min', type=float, default=0.35)
     args = ap.parse_args()
 
     source: Path = args.source.resolve()
@@ -188,7 +195,7 @@ if __name__ == '__main__':
         TSC: TransitSearch = select_ts_class(source)
         logger.info(f"Chose {TSC.__name__} transit search class")
         files: Dict = TSC.gather_data(source, target=args.target)
-        targets: List = sorted(files.keys())
+        targets: List = sorted(files.keys()) if args.target_file is None else fromfile(args.target_file, dtype=int, sep=' ')
 
         logger.info(f"Found {len(targets)} target{'s' if len(targets) > 1 else ''}")
         logger.handlers[-1].flush()
@@ -204,4 +211,3 @@ if __name__ == '__main__':
             run_mpi_master_node(args)
         else:
             run_mpi_worker_node(args)
-
