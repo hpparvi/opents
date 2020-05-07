@@ -37,6 +37,7 @@ class TESSTS(TransitSearch):
         self.files: List = []               # Files ingested
         self._h0: Optional[Header] = None
         self._h1: Optional[Header] = None
+        self.tic: int = None
 
         # Unmodified time and flux arrays
         # -------------------------------

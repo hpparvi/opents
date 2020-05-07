@@ -105,6 +105,7 @@ class TESSSPOCTS(TESSTS):
         self.flux_raw = concatenate(f2)
         self.mag = self._h0['TESSMAG']
 
+        self.tic = self._h0['TICID']
         name = self._h0['OBJECT'].replace(' ', '_')
         self.logger = logging.getLogger(f"tessts:{name}")
 
