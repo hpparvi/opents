@@ -119,7 +119,7 @@ def run_mpi_worker_node(args):
 
 
 def run_search(TSC, files: Union[List[Path], Path, str], args, parallel=True):
-    ts: TransitSearch = TSC(pmin=args.p_min, bic_limit=args.bic_limit, use_tqdm=not parallel)
+    ts: TransitSearch = TSC(pmin=args.p_min, pmax=args.p_max, bic_limit=args.bic_limit, use_tqdm=not parallel)
     ts.read_data(files)
     #try:
     for i in range(args.max_planets):
@@ -153,6 +153,7 @@ if __name__ == '__main__':
     ap.add_argument('--bic-limit', type=float, default=5)
     ap.add_argument('--n-threads', type=int, default=0)
     ap.add_argument('--p-min', type=float, default=0.35)
+    ap.add_argument('--p-max', type=float, default=None)
     args = ap.parse_args()
 
     source: Path = args.source.resolve()
