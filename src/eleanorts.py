@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Union, List, Optional, Dict
 
 from astropy.io import fits
-from numpy import median, ndarray, load, concatenate
+from numpy import median, ndarray, load, concatenate, nanmedian
 
 from .tessts import TESSTS
 
@@ -71,14 +71,14 @@ class ELEANORTS(TESSTS):
             self.files.append(f)
             if self._h0 is None:
                 self._h0 = hdu_list[0].header
-                self.teff = self._h0['TEFF']
+                self.teff = self._h0.get('TEFF', 5000)
                 self.teff = self.teff if self.teff > 2500 else 5000
 
             sector = self._h0['SECTOR']
             self.sectors.append(sector)
 
             # what is the difference between CORR_FLUX/TIME and flux_flat/time_flat
-            flux = f['CORR_FLUX']
+            flux = f['CORR_FLUX'] / nanmedian(f['CORR_FLUX'])
             time = f['TIME'] + self.bjdrefi # TESS reference date
             ferr = f['FLUX_ERR']
 
@@ -87,9 +87,9 @@ class ELEANORTS(TESSTS):
 
             m = f['QUALITY'] == 0
 
-            times.append(time)    # <-- Why don't filter by quality flag as with fraw?
-            fluxes.append(flux)
-            ferrs.append(ferr)
+            times.append(time[m])    # <-- Why don't filter by quality flag as with fraw?
+            fluxes.append(flux[m])
+            ferrs.append(ferr[m])
             t2.append(traw[m])
             f2.append(fraw[m])
 
