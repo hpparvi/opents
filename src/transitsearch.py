@@ -34,7 +34,7 @@ from typing import Optional, List, Union, Dict
 
 from tqdm.auto import tqdm
 
-from .celeritestep import CeleriteStep
+from .celeritestep import CeleriteM32Step, CeleriteSHOTStep
 from .plots import bplot
 from .blsstep import BLSStep
 from .lsstep import LombScargleStep
@@ -138,8 +138,8 @@ class TransitSearch:
         None
         """
         self.ls      = self.register_step(LombScargleStep(self))
-        self.cvar    = self.register_step(CeleriteStep(self))
         self.pvar    = self.register_step(PVarStep(self))
+        self.cvar    = self.register_step(CeleriteM32Step(self))
         self.bls     = self.register_step(BLSStep(self))
         self.tf_all  = self.register_step(TransitFitStep(self, 'all', ' Transit fit results  ', use_tqdm=self.use_tqdm))
         self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  ', use_tqdm=self.use_tqdm))

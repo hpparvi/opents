@@ -17,16 +17,50 @@ from logging import getLogger
 from typing import Optional
 
 from astropy.io.fits import HDUList, Card
+from astropy.stats import mad_std, sigma_clip
 from celerite import GP
-from celerite.terms import SHOTerm
-from numpy.core._multiarray_umath import log, pi
+from celerite.terms import SHOTerm, Matern32Term
+from numpy import ones, log, pi, sqrt, diff, inf
 from scipy.optimize import minimize
 
 from .otsstep import OTSStep
 
 logger = getLogger("celerite-step")
 
-class CeleriteStep(OTSStep):
+
+class CeleriteM32Step(OTSStep):
+    def __init__(self, ts):
+        super().__init__(ts)
+        self.mask = None
+        self.prediction = None
+
+    def __call__(self, rho: Optional[float] = 1.):
+        logger.info("Running Celerite Matern 3/2 detrending")
+
+        time = self.ts.time.copy()
+        flux = self.ts.flux.copy()
+        mask = ones(time.size, bool)
+
+        for i in range(3):
+            time_learn = time[mask]
+            flux_learn = flux[mask]
+
+            wn = mad_std(diff(flux_learn)) / sqrt(2)
+            log_sigma = log(mad_std(flux_learn))
+            log_rho = log(rho)
+
+            kernel = Matern32Term(log_sigma, log_rho)
+            gp = GP(kernel, mean=1.0)
+            gp.compute(time_learn, yerr=wn)
+            self.prediction = gp.predict(flux_learn, time, return_cov=False)
+            mask &= ~sigma_clip(flux - self.prediction, sigma=5).mask
+
+        residuals = flux - self.prediction
+        self.mask = m = ~(sigma_clip(residuals, sigma_lower=inf, sigma_upper=5).mask)
+        self.ts._data.update('celerite_m32', time[m], (flux - self.prediction + 1)[m], self.ts.ferr[m])
+
+
+class CeleriteSHOTStep(OTSStep):
     def __init__(self, ts):
         super().__init__(ts)
         self.result = None
