@@ -75,17 +75,32 @@ def dip_significance(phase: ndarray, flux: ndarray, p0: float = None, tdur: floa
     sbl = array([ip(xs+tc).sum() / tdur for tc in samples])
     return (s0-sbl.mean()) / sbl.std()
 
+
 class PVarStep(OTSStep):
     name = 'pvar'
+
+    def __init__(self, ts):
+        super().__init__(ts)
+        self.time_before = None
+        self.flux_before = None
+        self.time_after = None
+        self.flux_after = None
+        self.model = None
+        self.phase = None
+
     def __call__(self):
         self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
         self.logger.info("Testing for a significant non-transit-like periodic variability")
 
-        phase = fold(self.ts.time, self.ts.ls.period)
-        bp, bf = running_median(phase, self.ts.flux, 0.05, 100)
+        self.time_before = self.ts.time
+        self.flux_before = self.ts.flux
+        self.time_after = self.ts.time
+
+        phase = fold(self.time_before, self.ts.ls.period)
+        bp, bf = running_median(phase, self.flux_before, 0.05, 100)
         pv = interp1d(bp, bf)(phase)
 
-        df = abs(diff(pv) / diff(self.ts.time))
+        df = abs(diff(pv) / diff(self.time_before))
         ps = percentile(df, [80, 99.5])
 
         pv_amplitude = bf.ptp()
@@ -115,8 +130,10 @@ class PVarStep(OTSStep):
             self.logger.info("Found and removed a periodic signal")
             self.model_removed = True
             flux = self.ts.flux - self.model + 1
+            self.flux_after = flux
             self.ts.update_data('pvarstep', self.ts.time, flux, self.ts.ferr)
         else:
+            self.flux_after = self.ts.flux
             self.model_removed = False
             if self.is_sigificant:
                 self.logger.info("Found a periodic signal but it's too transit-like to be removed")
@@ -134,9 +151,9 @@ class PVarStep(OTSStep):
         setp(ax, xlabel='Phase [d]', ylabel='Periodic model [%]')
 
     def plot_over_time(self, ax):
-        mbreak = ones(self.ts.time.size, bool)
-        mbreak[1:] = diff(self.ts.time) < 1
-        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.ts.flux_detrended, nan))
-        ax.plot(self.ts.time - self.ts.bjdrefi, where(mbreak, self.model, nan), 'k')
+        mbreak = ones(self.time_before.size, bool)
+        mbreak[1:] = diff(self.time_before) < 1
+        ax.plot(self.time_before - self.ts.bjdrefi, where(mbreak, self.flux_before, nan))
+        ax.plot(self.time_before - self.ts.bjdrefi, where(mbreak, self.model, nan), 'k')
         setp(ax, xlabel=f'Time - {self.ts.bjdrefi} [BJD]', ylabel='Normalized flux')
         ax.autoscale(axis='x', tight=True)
