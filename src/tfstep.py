@@ -26,13 +26,19 @@ from matplotlib.pyplot import setp
 from numpy.random import uniform
 from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate, sqrt
 from numpy.core._multiarray_umath import floor, zeros, log, pi, array, sin
-from pytransit import QuadraticModelCL, QuadraticModel, BaseLPF
 from pytransit.lpf.lpf import map_ldc
 from pytransit.lpf.tesslpf import downsample_time
 from pytransit.orbits import epoch, as_from_rhop, i_from_ba, i_from_baew, d_from_pkaiews
 from pytransit.param import LParameter, UniformPrior as UP, NormalPrior as NP, PParameter, GParameter
 from pytransit.utils.misc import fold
 from scipy.interpolate import interp1d
+
+from pytransit import QuadraticModel, BaseLPF
+
+try:
+    from pytransit import QuadraticModelCL
+except:
+    pass
 
 from .otsstep import OTSStep
 from .plots import bplot
