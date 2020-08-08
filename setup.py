@@ -19,7 +19,7 @@ from version import version
 long_description = 'Open exoplanet transit search pipeline.'
 
 setup(name='OpenTS',
-      version=version,
+      version=str(version),
       description='Open transit search pipeline.',
       long_description=long_description,
       author='Hannu Parviainen',
