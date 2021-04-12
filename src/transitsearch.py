@@ -380,8 +380,8 @@ class TransitSearch:
 
         # Parameter posteriors
         # --------------------
-        gs_posteriors = gs[7,:].subgridspec(3, 5, hspace=0, wspace=0.01)
-        aposteriors = array([[subplot(gs_posteriors[j, i]) for i in range(5)] for j in range(3)])
+        gs_posteriors = gs[7,:].subgridspec(3, 6, hspace=0, wspace=0.01)
+        aposteriors = array([[subplot(gs_posteriors[j, i]) for i in range(6)] for j in range(3)])
         self.plot_posteriors(aposteriors)
         aposteriors[0,0].text(0.02, 1, 'Parameter posteriors', va='center', transform=aposteriors[0,0].transAxes, size=11,
                   bbox=dict(facecolor='w'))
@@ -484,27 +484,34 @@ class TransitSearch:
             ax.axvspan(*p[1:3], alpha=0.5, fc=c)
             ax.axvline(p[0], c='k')
 
+        t0 = df['tc'].median()
+        plotp(24*60*(df['tc']-t0), axs[0, 0])
+        plotp(24*60*(dfe['tc']-t0), axs[1, 0])
+        plotp(24*60*(dfo['tc']-t0), axs[2, 0])
+        xlims = concatenate([ax.get_xlim() for ax in axs[:,0]])
+        setp(axs[:,0], xlim=(xlims.min(), xlims.max()))
+
         for i, l in enumerate('b rho k t14'.split()):
             for j,d in enumerate((df, dfe, dfo)):
-                plotp(d[l], axs[j,i])
+                plotp(d[l], axs[j,i+1])
             try:
-                setp(axs[:,i], xlim=percentile(concatenate([df[l].values, dfe[l].values, dfo[l].values]), [1, 99]))
+                setp(axs[:,i+1], xlim=percentile(concatenate([df[l].values, dfe[l].values, dfo[l].values]), [1, 99]))
             except ValueError:
                 pass
 
-        plotp(df['ble'], axs[0, 4])
-        plotp(df['blo'], axs[0, 4], c='C1')
-        plotp(dfe['ble'], axs[1, 4])
-        plotp(dfo['blo'], axs[2, 4], c='C1')
+        plotp(df['ble'], axs[0, 5])
+        plotp(df['blo'], axs[0, 5], c='C1')
+        plotp(dfe['ble'], axs[1, 5])
+        plotp(dfo['blo'], axs[2, 5], c='C1')
         av = concatenate([df['ble'].values, df['blo'].values, dfo['blo'].values, dfe['ble'].values])
         try:
-            setp(axs[:,4], xlim=percentile(av, [1, 99]))
+            setp(axs[:,5], xlim=percentile(av, [1, 99]))
         except ValueError:
             pass
 
         setp(axs, yticks=[])
         setp(axs[:-1, :], xticks=[])
-        for ax, label in zip(axs[-1], 'Impact parameter, Stellar density [g/cm$^3$], Radius ratio, Duration [h], Eve-Odd baseline'.split(', ')):
+        for ax, label in zip(axs[-1], 'Transit centre difference [min], Impact parameter, Stellar density [g/cm$^3$], Radius ratio, Duration [h], Eve-Odd baseline'.split(', ')):
             ax.set_xlabel(label)
         for ax, label in zip(axs[:, 0], 'all even odd'.split()):
             ax.set_ylabel(label)
