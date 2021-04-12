@@ -228,7 +228,7 @@ class TransitFitStep(OTSStep):
         self.duration = None    # Best-fit duration
         self.depth = None       # Best-fit depth
 
-    def __call__(self, npop: int = 30, de_niter: int = 1000, mcmc_niter: int = 100, mcmc_repeats: int = 2, initialize_only: bool = False):
+    def __call__(self, npop: int = 40, de_niter: int = 1000, mcmc_niter: int = 200, mcmc_repeats: int = 3, initialize_only: bool = False):
         self.logger = getLogger(f"{self.name}:{self.ts.name.lower().replace('_','-')}")
         self.logger.info(f"Fitting {self.mode} transits")
         self.ts.transit_fits[self.mode] = self
@@ -267,7 +267,7 @@ class TransitFitStep(OTSStep):
             lpf.set_prior('k2', 'UP', max(0.01**2, 0.5*d), min(max(0.08**2, 4*d), 0.75**2))
         else:
             pr = self.ts.tf_all.parameters
-            lpf.set_prior('tc', 'NP', pr.tc.med, pr.tc.err)
+            lpf.set_prior('tc', 'NP', pr.tc.med, 5*pr.tc.err)
             lpf.set_prior('p',  'NP', pr.p.med, pr.p.err)
             lpf.set_prior('k2', 'UP', max(0.01**2, 0.5 * pr.k2.med), max(0.08**2, min(0.6**2, 2 * pr.k2.med)))
             lpf.set_prior('q1', 'NP', pr.q1.med, pr.q1.err)
