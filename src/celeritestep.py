@@ -34,14 +34,14 @@ class CeleriteM32Step(OTSStep):
         self.mask = None
         self.prediction = None
 
-    def __call__(self, rho: Optional[float] = 1.):
+    def __call__(self, rho: Optional[float] = 2., niter: int = 5):
         logger.info("Running Celerite Matern 3/2 detrending")
 
         time = self.ts.time.copy()
         flux = self.ts.flux.copy()
         mask = ones(time.size, bool)
 
-        for i in range(3):
+        for i in range(niter):
             time_learn = time[mask]
             flux_learn = flux[mask]
 
@@ -53,10 +53,10 @@ class CeleriteM32Step(OTSStep):
             gp = GP(kernel, mean=1.0)
             gp.compute(time_learn, yerr=wn)
             self.prediction = gp.predict(flux_learn, time, return_cov=False)
-            mask &= ~sigma_clip(flux - self.prediction, sigma=5).mask
+            mask &= ~sigma_clip(flux - self.prediction, sigma=3).mask
 
         residuals = flux - self.prediction
-        self.mask = m = ~(sigma_clip(residuals, sigma_lower=inf, sigma_upper=5).mask)
+        self.mask = m = ~(sigma_clip(residuals, sigma_lower=inf, sigma_upper=4).mask)
         self.ts._data.update('celerite_m32', time[m], (flux - self.prediction + 1)[m], self.ts.ferr[m])
 
 
