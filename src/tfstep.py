@@ -24,7 +24,7 @@ import pandas as pd
 from astropy.table import Table
 from matplotlib.pyplot import setp
 from numpy.random import uniform
-from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate, sqrt
+from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate, sqrt, clip
 from numpy.core._multiarray_umath import floor, zeros, log, pi, array, sin
 from pytransit.lpf.lpf import map_ldc
 from pytransit.lpf.tesslpf import downsample_time
@@ -277,7 +277,7 @@ class TransitFitStep(OTSStep):
         if self.ts.teff is not None:
             ldcs = Table.read(Path(__file__).parent / "data/ldc_table.fits").to_pandas()
             ip = interp1d(ldcs.teff, ldcs[['q1', 'q2']].T)
-            q1, q2 = ip(self.ts.teff)
+            q1, q2 = ip(clip(self.ts.teff, 2000., 12000.))
             lpf.set_prior('q1', 'NP', q1, 1e-5)
             lpf.set_prior('q2', 'NP', q2, 1e-5)
 

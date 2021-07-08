@@ -415,8 +415,7 @@ class TransitSearch:
         ax.plot(self.time, self.flux)
         tb, fb, eb = downsample_time(self.time, self.flux, 1 / 24)
         ax.plot(tb, fb, 'k', lw=1)
-        ax.autoscale(axis='x', tight=True)
-        setp(ax, xlabel=f'Time [BJD]', ylabel='Normalized flux')
+        setp(ax, xlabel=f'Time [BJD]', ylabel='Normalized flux', xlim=self.time[[0,-1]])
 
     @bplot
     def plot_dll(self, ax=None):

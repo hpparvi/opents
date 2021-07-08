@@ -52,7 +52,7 @@ class K2SCTS(K2TS):
         try:
             dfile = str(sorted(source.glob('EPIC*.fits'))[0] if source.is_dir() else source)
             h = getheader(dfile, 1)
-            return 'k2_syscor' in h['PROGRAM']
+            return 'k2SC' in h['PROGRAM']
         except:
             return False
 

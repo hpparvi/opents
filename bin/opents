@@ -121,22 +121,22 @@ def run_mpi_worker_node(args):
 def run_search(TSC, files: Union[List[Path], Path, str], args, parallel=True):
     ts: TransitSearch = TSC(pmin=args.p_min, pmax=args.p_max, bic_limit=args.bic_limit, use_tqdm=not parallel)
     ts.read_data(files)
-    #try:
-    for i in range(args.max_planets):
-        ts.run()
-        ts.save_fits(args.result_dir)
+    try:
+        for i in range(args.max_planets):
+            ts.run()
+            ts.save_fits(args.result_dir)
 
-        if args.plot:
-            fig = ts.plot_report()
-            fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet:02d}.{args.plot_format}")
-            close(fig)
+            if args.plot:
+                fig = ts.plot_report()
+                fig.savefig(args.plot_dir / f"{ts.name}_{ts.planet:02d}.{args.plot_format}")
+                close(fig)
 
-        if ts.dbic > args.bic_limit:
-            ts.next_planet()
-        else:
-            break
-    #except:
-    #    logger.error(f"Something went wrong with {ts.name}")
+            if ts.dbic > args.bic_limit:
+                ts.next_planet()
+            else:
+                break
+    except ValueError:
+        logger.error(f"Something went wrong with {ts.name}")
 
 
 if __name__ == '__main__':
