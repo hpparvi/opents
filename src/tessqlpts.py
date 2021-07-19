@@ -79,8 +79,9 @@ class TESSQLPTS(TESSTS):
             time = tb['TIME'].data.astype('d') + tb.meta['BJDREFI']
             flux = tb['KSPSAP_FLUX'].data.astype('d')
             ferr = tb['KSPSAP_FLUX_ERR'].data.astype('d')
+            qual = tb['QUALITY'].data
 
-            mask = isfinite(time) & isfinite(flux) & isfinite(ferr)
+            mask = isfinite(time) & isfinite(flux) & isfinite(ferr) & (qual != 0)
             time, flux, ferr = time[mask], flux[mask], ferr[mask]
             ferr /= median(flux)
             flux /= median(flux)
