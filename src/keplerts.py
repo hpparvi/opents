@@ -21,7 +21,7 @@ from astropy.io.fits import Header, getheader, getval, HDUList, Card
 from astropy.table import Table
 from matplotlib.artist import setp
 from matplotlib.ticker import MaxNLocator
-from numpy import percentile, unique, diff, median, isfinite, concatenate
+from numpy import percentile, unique, diff, median, isfinite, concatenate, nan
 from numpy.core._multiarray_umath import ndarray
 from pytransit.orbits import epoch
 
@@ -127,9 +127,9 @@ class KeplerTS(TransitSearch):
             filename = Path(filename).resolve()
 
             tb = Table.read(filename)
-            time = tb['TIME'].data.astype('d') + tb.meta['BJDREFI']
-            flux = tb['PDCSAP_FLUX'].data.astype('d')
-            ferr = tb['PDCSAP_FLUX_ERR'].data.astype('d')
+            time = tb['TIME'].filled(nan).astype('d') + tb.meta['BJDREFI']
+            flux = tb['PDCSAP_FLUX'].filled(nan).astype('d')
+            ferr = tb['PDCSAP_FLUX_ERR'].filled(nan).astype('d')
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr)
             time, flux, ferr = time[mask], flux[mask], ferr[mask]
             ferr /= median(flux)
@@ -176,7 +176,7 @@ class KeplerTS(TransitSearch):
     # light curve file.
     def _cf_add_summary_statistics(self, hdul):
         super()._cf_add_summary_statistics(hdul)
-        h = hdul[1].header
+        h = hdul[0].header
         keys = "cdpp3_0 cdpp6_0 cdpp12_0 crowdsap flfrcsap pdcvar".upper().split()
         for k in keys:
             h.append(Card(k, self._h1[k], self._h1.comments[k]), bottom=True)
