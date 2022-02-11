@@ -25,7 +25,7 @@ from .tessts import TESSTS
 
 
 class TESSSPOCTS(TESSTS):
-    fnformat = 'tess*-s*-{}-*s_lc.fits'
+    fnformat = 'hlsp_tess-spoc_tess_phot_{}-s*lc.fits'
 
     # Data input
     # ==========
@@ -34,7 +34,7 @@ class TESSSPOCTS(TESSTS):
     #
     @classmethod
     def tic_from_name(cls, f: Path):
-        return int(f.name.split('-')[2])
+        return int(f.name.split('_')[4].split('-')[0])
 
     @staticmethod
     def can_read_input(source: Path) -> bool:
@@ -50,7 +50,7 @@ class TESSSPOCTS(TESSTS):
             True if the files are readable, False if not.
         """
         try:
-            dfile = sorted(source.glob('tess*.fits'))[0] if source.is_dir() else source
+            dfile = sorted(source.glob('hlsp_tess*.fits'))[0] if source.is_dir() else source
             h = getheader(dfile)
             return h['TELESCOP'] == 'TESS' and 'spoc' in h['PROCVER']
         except:
@@ -86,10 +86,7 @@ class TESSSPOCTS(TESSTS):
                 self._h0 = getheader(filename, 0)
                 self._h1 = getheader(filename, 1)
                 self.teff = self._h0['TEFF']
-                if self.teff is None:
-                    self.teff = 5000
-                else:
-                    self.teff = self.teff if self.teff > 2500 else 5000
+                self.teff = self.teff if self.teff > 2500 else 5000
             self.sectors.append(getval(filename, 'sector', 0))
 
             times.append(time)
