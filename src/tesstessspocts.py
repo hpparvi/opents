@@ -24,7 +24,7 @@ from numpy import median, isfinite, concatenate, nan
 from .tessts import TESSTS
 
 
-class TESSSPOCTS(TESSTS):
+class TESSSPOCTS2(TESSTS):
     fnformat = 'hlsp_tess-spoc_tess_phot_{}-s*lc.fits'
 
     # Data input
