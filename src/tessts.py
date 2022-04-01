@@ -70,6 +70,7 @@ class TESSTS(TransitSearch):
         -------
             Dictionary of lists where each list contains data files for a single TIC.
         """
+
         if source.is_dir():
             tic_pattern = f'*{target}*' if target is not None else '*'
             files = sorted(source.glob(cls.fnformat.format(tic_pattern)))

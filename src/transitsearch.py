@@ -73,7 +73,7 @@ class TSData:
 
 
 class TransitSearch:
-    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5, min_transits: int = 3,
+    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 20000, bic_limit: float = 5, min_transits: int = 3,
                  nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True, use_opencl: bool = True):
 
         self.name: Optional[str] = ''
