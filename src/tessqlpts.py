@@ -76,9 +76,9 @@ class TESSQLPTS(TESSTS):
             filename = Path(filename).resolve()
 
             tb = Table.read(filename)
-            time = tb['TIME'].filled(nan).astype('d') + tb.meta['BJDREFI']
-            flux = tb['KSPSAP_FLUX'].filled(nan).astype('d')
-            ferr = tb['KSPSAP_FLUX_ERR'].filled(nan).astype('d')
+            time = tb['TIME'] + tb.meta['BJDREFI']
+            flux = tb['KSPSAP_FLUX']
+            ferr = tb['KSPSAP_FLUX_ERR']
             qual = tb['QUALITY'].data
 
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr) & (qual == 0)
