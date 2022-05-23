@@ -23,10 +23,11 @@ from .tessqlpts import TESSQLPTS
 from .eleanorts import ELEANORTS
 from .keplerts import KeplerTS
 from .platotestts import PlatoTestTransitSearch
-from. everestts import EverestTS
+from .everestts import EverestTS
+from  .k2k2ts import K2K2TS
 
 
-ts_classes = (TESSIACTS, TESSSPOCTS, ELEANORTS, K2SCTS,  TESSQLPTS, KeplerTS, PlatoTestTransitSearch, EverestTS)
+ts_classes = (TESSIACTS, TESSSPOCTS, ELEANORTS, K2SCTS,  TESSQLPTS, KeplerTS, PlatoTestTransitSearch, EverestTS, K2SCTS)
 
 def select_ts_class(data_source: Path):
     """Selects the correct transit search class given an input data file or directory
