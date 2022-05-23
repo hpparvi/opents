@@ -34,7 +34,7 @@ from typing import Union, List, Optional, Dict
 
 from astropy.io.fits import Card, getheader, HDUList, getval
 from astropy.table import Table
-from numpy import median, ndarray, load, concatenate, nanmedian, isfinite
+from numpy import median, ndarray, load, concatenate, nanmedian, isfinite, nan
 
 from .k2ts import K2TS
 
@@ -47,6 +47,12 @@ class K2K2TS(K2TS):
     # The `TransitSearch`class doesn't implement the method for reading in the data. This is the absolute
     # minimum any subclass needs to implement for the class to function.
     #
+    def __init__(self, pmin: float = 0.25, pmax: Optional[float] = None, nper: int = 10000, bic_limit: float = 5,
+                 min_transits: int = 3, nsamples: int = 1, exptime: float = 0.0, use_tqdm: bool = True,
+                 use_opencl: bool = True):
+        super().__init__(pmin, pmax, nper, bic_limit, min_transits, nsamples, exptime, use_tqdm, use_opencl)
+        self.tic = None
+
     @classmethod
     def epic_from_name(cls, f: Path):
         return int(f.name.split('-')[0].split('o')[1])
@@ -65,13 +71,13 @@ class K2K2TS(K2TS):
             True if the files are readable, False if not.
         """
         try:
-            dfile = str(sorted(source.glob('ktwo*_*.fits'))[0] if source.is_dir() else source)
+            dfile = str(sorted(source.glob('ktwo*.fits'))[0] if source.is_dir() else source)
             h = getheader(dfile)
-            return 'k2' in h['MISSION'] and 'Kepler' in h['TELESCOP']
+            return 'K2' in h['MISSION'] and 'Kepler' in h['TELESCOP']
         except:
             return False
 
-    def reader(self, files: Union[Path, str, List[Path]]):
+    def _reader(self, files: Union[Path, str, List[Path]]):
         """Reads the data from a file or a list of files
 
         Parameters
@@ -101,10 +107,6 @@ class K2K2TS(K2TS):
             if self._h0 is None:
                 self._h0 = getheader(filename, 0)
                 self._h1 = getheader(filename, 1)
-                self.teff = self._h0['TEFF']
-                self.teff = self.teff if self.teff > 2500 else 5000
-            sector = self._h0['CAMPAIGN']
-            self.sectors.append(sector)
 
             times.append(time)
             fluxes.append(flux)
