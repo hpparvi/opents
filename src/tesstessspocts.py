@@ -75,9 +75,9 @@ class TESSSPOCTS2(TESSTS):
             filename = Path(filename).resolve()
 
             tb = Table.read(filename)
-            time = tb['TIME'].filled(nan).astype('d') + tb.meta['BJDREFI']
-            flux = tb['PDCSAP_FLUX'].filled(nan).astype('d')
-            ferr = tb['PDCSAP_FLUX_ERR'].filled(nan).astype('d')
+            time = tb['TIME'].astype('d') + tb.meta['BJDREFI']
+            flux = tb['PDCSAP_FLUX'].astype('d')
+            ferr = tb['PDCSAP_FLUX_ERR'].astype('d')
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr)
             time, flux, ferr = time[mask], flux[mask], ferr[mask]
             ferr /= median(flux)
