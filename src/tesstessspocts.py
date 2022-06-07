@@ -52,7 +52,7 @@ class TESSSPOCTS2(TESSTS):
         try:
             dfile = sorted(source.glob('hlsp_tess*.fits'))[0] if source.is_dir() else source
             h = getheader(dfile)
-            return h['TELESCOP'] == 'TESS' and 'spoc' in h['PROCVER']
+            return h['TELESCOP'].strip() == 'TESS' and 'spoc' in h['PROCVER']
         except:
             return False
 
