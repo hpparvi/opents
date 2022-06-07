@@ -20,7 +20,7 @@ from typing import Union, List, Optional, Dict
 
 from astropy.io.fits import Card, getheader, HDUList, getval
 from astropy.table import Table
-from numpy import median, isfinite, concatenate, nan
+from numpy import median, ndarray, load, concatenate, nanmedian, isfinite, nan
 
 from .tessts import TESSTS
 
@@ -76,9 +76,9 @@ class TESSQLPTS(TESSTS):
             filename = Path(filename).resolve()
 
             tb = Table.read(filename)
-            time = tb['TIME'] + tb.meta['BJDREFI']
-            flux = tb['KSPSAP_FLUX']
-            ferr = tb['KSPSAP_FLUX_ERR']
+            time = tb['TIME'].astype('d') + tb.meta['BJDREFI']
+            flux = tb['KSPSAP_FLUX'].astype('d')
+            ferr = tb['KSPSAP_FLUX_ERR'].astype('d')
             qual = tb['QUALITY'].data
 
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr) & (qual == 0)
