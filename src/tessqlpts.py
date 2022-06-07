@@ -102,8 +102,6 @@ class TESSQLPTS(TESSTS):
         flux = concatenate(fluxes)
         ferr = concatenate(ferrs)
 
-        breakpoint()
-
         self.time_detrended = time
         self.time_raw = time
         self.flux_detrended = flux
