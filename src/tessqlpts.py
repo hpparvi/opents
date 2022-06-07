@@ -77,8 +77,8 @@ class TESSQLPTS(TESSTS):
 
             tb = Table.read(filename)
             time = tb['TIME'] + tb.meta['BJDREFI']
-            flux = tb['KSPSAP_FLUX']
-            ferr = tb['KSPSAP_FLUX_ERR']
+            flux = tb['KSPSAP_FLUX'].astype('d')
+            ferr = tb['KSPSAP_FLUX_ERR'].astype('d')
             qual = tb['QUALITY'].data
 
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr) & (qual == 0)
@@ -101,6 +101,8 @@ class TESSQLPTS(TESSTS):
         time = concatenate(times)
         flux = concatenate(fluxes)
         ferr = concatenate(ferrs)
+
+        breakpoint()
 
         self.time_detrended = time
         self.time_raw = time
