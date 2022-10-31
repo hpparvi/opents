@@ -18,9 +18,18 @@ from pathlib import Path
 from typing import Union, List, Optional, Dict
 
 from astropy.io import fits
-from numpy import median, ndarray, load, concatenate, nanmedian
+from matplotlib.artist import setp
+from matplotlib.ticker import MaxNLocator
+from numpy import median, ndarray, load, concatenate, nanmedian, percentile, unique, diff
+from pytransit.orbits import epoch
 
+from .blsstep import BLSStep
+from .eleanorstep import EleanorStep
+from .lsstep import LombScargleStep
+from .plots import bplot
+from .pvarstep import PVarStep
 from .tessts import TESSTS
+from .tfstep import TransitFitStep
 
 
 class ELEANORTS(TESSTS):
@@ -92,7 +101,6 @@ class ELEANORTS(TESSTS):
             ferrs.append(ferr[m])
             t2.append(traw[m])
             f2.append(fraw[m])
-
             hdu_list.close()
 
         self.time_raw = concatenate(t2)
@@ -105,3 +113,51 @@ class ELEANORTS(TESSTS):
         name = "TIC {}".format(self._h0['TIC_ID'])
         return name, concatenate(times), concatenate(fluxes), concatenate(ferrs)
 
+    def initialize_steps(self):
+        """Initialize the pipeline steps.
+
+        Returns
+        -------
+        None
+        """
+        self.ls      = self.register_step(LombScargleStep(self))
+        self.pvar    = self.register_step(PVarStep(self))
+        self.cvar    = self.register_step(EleanorStep(self))
+        self.bls     = self.register_step(BLSStep(self))
+        self.tf_all  = self.register_step(TransitFitStep(self, 'all', ' Transit fit results  ', use_tqdm=self.use_tqdm))
+        self.tf_even = self.register_step(TransitFitStep(self, 'even', ' Even tr. fit results  ', use_tqdm=self.use_tqdm))
+        self.tf_odd  = self.register_step(TransitFitStep(self, 'odd', ' Odd tr. fit results  ', use_tqdm=self.use_tqdm))
+
+    @bplot
+    def plot_flux_vs_time(self, ax=None):
+        rpc = percentile(self.flux_raw, [0.5, 99.5, 50])
+        dpc = percentile(self._data.flux, [0.5, 99.5, 50])
+
+        d = 1.15
+        bbox_raw = rpc[-1] + d * (rpc[0] - rpc[-1]), rpc[-1] + d * (rpc[1] - rpc[-1])
+        bbox_dtr = dpc[-1] + d * (dpc[0] - dpc[-1]), dpc[-1] + d * (dpc[1] - dpc[-1])
+        bbox_dtr = 0.99*self._data.flux.min(), 1.01*self._data.flux.max()
+        offset = d * (rpc[1] - rpc[-1]) - d * (dpc[0] - dpc[-1])
+
+        ax.plot(self._data.time - self.bjdrefi, self._data.flux, label='detrended',zorder=1)
+        #ax.plot(self.time_detrended - self.bjdrefi, self.flux_detrended + 1.2*offset, label='detrended')
+        ax.plot(self.time_raw - self.bjdrefi, self.flux_raw, label='raw', zorder=-1, alpha=0.15)
+
+        if self.zero_epoch:
+            transits = self.zero_epoch + unique(epoch(self.time, self.zero_epoch, self.period)) * self.period
+            [ax.axvline(t - self.bjdrefi, ls='--', alpha=0.5, lw=1) for t in transits if
+             self.time[0] < t < self.time[-1]]
+
+            def time2epoch(x):
+                return (x + self.bjdrefi - self.zero_epoch) / self.period
+
+            def epoch2time(x):
+                return self.zero_epoch - self.bjdrefi + x * self.period
+
+            secax = ax.secondary_xaxis('top', functions=(time2epoch, epoch2time))
+            secax.set_xlabel('Epoch')
+            secax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+        ax.legend(loc='upper right')
+        ax.autoscale(axis='x', tight=True)
+        setp(ax, xlabel=f'Time - {self.bjdrefi} [BJD]', ylabel='Normalized flux', ylim=bbox_dtr)
