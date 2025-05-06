@@ -26,9 +26,10 @@ from .platotestts import PlatoTestTransitSearch
 from .everestts import EverestTS
 from .k2k2ts import K2K2TS
 from .tesstessspocts import TESSSPOCTS2
+from .rwts import RWTS
 
 
-ts_classes = (TESSIACTS, TESSSPOCTS, ELEANORTS, K2SCTS,  TESSQLPTS, KeplerTS, PlatoTestTransitSearch, EverestTS, K2K2TS, TESSSPOCTS2)
+ts_classes = (RWTS, TESSIACTS, TESSSPOCTS, ELEANORTS, K2SCTS,  TESSQLPTS, KeplerTS, PlatoTestTransitSearch, EverestTS, K2K2TS, TESSSPOCTS2)
 
 def select_ts_class(data_source: Path):
     """Selects the correct transit search class given an input data file or directory
