@@ -76,15 +76,23 @@ class TESSQLPTS(TESSTS):
             filename = Path(filename).resolve()
 
             tb = Table.read(filename)
-            time = tb['TIME'].astype('d') + tb.meta['BJDREFI']
-            flux = tb['KSPSAP_FLUX'].astype('d')
-            ferr = tb['KSPSAP_FLUX_ERR'].astype('d')
-            qual = tb['QUALITY'].data
+            h = getheader(filename)
+            if h['SECTOR'] > 55:
+                time = tb['TIME'].astype('d') + tb.meta['BJDREFI']
+                flux = tb['DET_FLUX'].astype('d')
+                ferr = tb['DET_FLUX_ERR'].astype('d')
+                qual = tb['QUALITY'].data
+            else:
+                time = tb['TIME'].astype('d') + tb.meta['BJDREFI']
+                flux = tb['KSPSAP_FLUX'].astype('d')
+                ferr = tb['KSPSAP_FLUX_ERR'].astype('d')
+                qual = tb['QUALITY'].data
 
             mask = isfinite(time) & isfinite(flux) & isfinite(ferr) & (qual == 0)
             time, flux, ferr = time[mask], flux[mask], ferr[mask]
             ferr /= median(flux)
             flux /= median(flux)
+
             if self._h0 is None:
                 self._h0 = getheader(filename, 0)
                 self._h1 = getheader(filename, 1)

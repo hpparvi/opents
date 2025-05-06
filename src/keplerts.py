@@ -102,7 +102,7 @@ class KeplerTS(TransitSearch):
             True if the files are readable, False if not.
         """
         try:
-            dfile = sorted(source.glob(cls.fnformat.format('*')))[0] if source.is_dir() else source
+            dfile = sorted(source.glob('kplr*.fits'))[0] if source.is_dir() else source
             h = getheader(dfile)
             return h['TELESCOP'] == 'Kepler' and h['ORIGIN'] == 'NASA/Ames'
         except:
