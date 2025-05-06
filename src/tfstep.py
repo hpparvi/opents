@@ -24,7 +24,8 @@ import pandas as pd
 from astropy.table import Table
 from matplotlib.pyplot import setp
 from numpy.random import uniform
-from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, concatenate, sqrt, clip
+from numpy import ones, unique, argsort, atleast_2d, ndarray, squeeze, inf, isfinite, exp, \
+    concatenate, sqrt, clip, ptp
 from numpy.core._multiarray_umath import floor, zeros, log, pi, array, sin
 from pytransit.lpf.lpf import map_ldc
 from pytransit.lpf.tesslpf import downsample_time
@@ -80,7 +81,7 @@ class SineBaseline:
     def init_parameters(self):
         """Baseline parameter initialisation.
         """
-        fptp = self.lpf.ofluxa.ptp()
+        fptp = ptp(self.lpf.ofluxa)
         bls = []
         bls.append(LParameter(f'c_sin', f'sin phase', '', UP(0.0, 1.0), bounds=(0, 1)))
         for i in range(self.n):
@@ -401,7 +402,7 @@ class TransitFitStep(OTSStep):
         ax.plot(24 * phase[pmask], fmod[pmask], 'k', zorder=100)
 
         # if duration > 1 / 24:
-        pb, fb, eb = downsample_time(phase[pmask], fobs[pmask], phase[pmask].ptp() / nbins)
+        pb, fb, eb = downsample_time(phase[pmask], fobs[pmask], ptp(phase[pmask]) / nbins)
         mask = isfinite(pb)
         pb, fb, eb = pb[mask], fb[mask], eb[mask]
         ax.errorbar(24 * pb, fb, eb, fmt='k.')

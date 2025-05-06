@@ -25,7 +25,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.pyplot import setp, figure, subplot
 from matplotlib.transforms import offset_copy
-from numpy import log, pi, argsort, unique, ndarray, percentile, array, concatenate, isfinite
+from numpy import log, pi, argsort, unique, ndarray, percentile, array, concatenate, isfinite, ptp
 from pytransit.orbits import epoch
 from pytransit.utils.misc import fold
 from pytransit.lpf.tesslpf import downsample_time
@@ -152,7 +152,7 @@ class TransitSearch:
         name, time, flux, ferr = self._reader(filename)
         self._data = TSData(time, flux, ferr)
         self.name = name
-        self.pmax = self.pmax or 0.98 * (time.ptp() / self.min_transits)
+        self.pmax = self.pmax or 0.98 * (ptp(time) / self.min_transits)
 
     def _reader(self, filename: Path):
         raise NotImplementedError
@@ -440,7 +440,7 @@ class TransitSearch:
     def plot_folded_orbit(self, ax=None, nbins: int = 100):
         phase = self.phase - 0.5 * self.period
         sids = argsort(phase)
-        pb, fb, eb = downsample_time(phase[sids], self.flux[sids], phase.ptp() / nbins)
+        pb, fb, eb = downsample_time(phase[sids], self.flux[sids], ptp(phase) / nbins)
         ax.errorbar(pb, fb, eb, fmt='k.')
         ax.autoscale(axis='x', tight=True)
         setp(ax, xlabel='Phase [d]', ylabel='Normalized flux')
@@ -456,7 +456,7 @@ class TransitSearch:
             fmod = m.fmod[sids][pmask]
             fobs = m.fobs[sids][pmask]
 
-            pb, fb, eb = downsample_time(phase, fobs, phase.ptp() / nbins)
+            pb, fb, eb = downsample_time(phase, fobs, ptp(phase) / nbins)
             mask = isfinite(pb)
             pb, fb, eb = pb[mask], fb[mask], eb[mask]
             axs[0].errorbar(24 * pb, fb, eb, fmt='o-', label=ms)

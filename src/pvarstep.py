@@ -18,7 +18,7 @@ from logging import getLogger
 from matplotlib.pyplot import setp
 from numba import njit
 from numpy import linspace, zeros_like, median, diff, percentile, fabs, log, argsort, ones, where, nan, argmax, \
-    concatenate, tile, array, ndarray
+    concatenate, tile, array, ndarray, ptp
 from numpy.random.mtrand import uniform
 from pytransit.utils.misc import fold
 from scipy.interpolate import interp1d
@@ -61,7 +61,7 @@ def dip_significance(phase: ndarray, flux: ndarray, p0: float = None, tdur: floa
     """
     flux = -(flux - flux.max())
     flux /= flux.sum()
-    period = phase.ptp()
+    period = ptp(phase)
     if tdur > 0.3*period:
         tdur = 0.3*period
     p0 = p0 if p0 is not None else phase[argmax(flux)]
@@ -103,7 +103,7 @@ class PVarStep(OTSStep):
         df = abs(diff(pv) / diff(self.time_before))
         ps = percentile(df, [80, 99.5])
 
-        pv_amplitude = bf.ptp()
+        pv_amplitude = ptp(bf)
         bfn = -bf
         bfn -= bfn.min() - 1e-12
         bfn /= bfn.sum()
