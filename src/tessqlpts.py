@@ -20,7 +20,7 @@ from typing import Union, List, Optional, Dict
 
 from astropy.io.fits import Card, getheader, HDUList, getval
 from astropy.table import Table
-from numpy import median, ndarray, load, concatenate, nanmedian, isfinite, nan
+from numpy import median, ndarray, load, concatenate, nanmedian, isfinite, nan, ptp, array
 
 from .tessts import TESSTS
 
@@ -107,7 +107,7 @@ class TESSQLPTS(TESSTS):
             f2[-1] /= median(f2[-1])
 
         time = concatenate(times)
-        flux = concatenate(fluxes)
+        flux = array(concatenate(fluxes))
         ferr = concatenate(ferrs)
 
         self.time_detrended = time
@@ -121,7 +121,7 @@ class TESSQLPTS(TESSTS):
         self.logger = logging.getLogger(f"tessts:{name}")
 
         self.logger.info(f"Target {self._h0['OBJECT']}")
-        self.logger.info(f"Read {len(files)} sectors, {time.size} points covering {time.ptp():.2f} days")
+        self.logger.info(f"Read {len(files)} sectors, {time.size} points covering {ptp(time):.2f} days")
         return name, time, flux, ferr
 
     # FITS file output
